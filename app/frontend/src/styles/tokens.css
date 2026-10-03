@@ -1,0 +1,64 @@
+/* Husk design tokens — taken from the prototype screens (light + dark). */
+:root,
+[data-theme="light"] {
+  --bg: #f6f5fa;            /* canvas / page */
+  --bg-glow: #e5dff9;       /* lavender wash (login, hero glows) */
+  --surface: #ffffff;       /* sidebar, cards, top bar */
+  --surface-2: #fbfaff;
+  --border: #e8e6ef;
+  --border-strong: #d9d5e6;
+  --text: #15141a;
+  --text-2: #4a4855;
+  --muted: #8b8994;
+  --accent: #7456f6;
+  --accent-2: #a08cfa;
+  --accent-soft: #efebfb;   /* active nav, icon tiles */
+  --accent-ink: #5b3fe0;
+  --primary: #15141a;       /* primary buttons */
+  --primary-ink: #ffffff;
+  --success: #2f8f6a;
+  --warning: #b7791f;
+  --danger: #c2413b;
+  --danger-soft: #fdeeee;
+  --dot: #d8d5e3;           /* canvas dot grid */
+  --shadow: 0 1px 2px rgba(21, 20, 26, 0.04), 0 8px 24px rgba(116, 86, 246, 0.06);
+  --shadow-pop: 0 12px 40px rgba(21, 20, 26, 0.14);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #111016;
+  --bg-glow: #2a2142;
+  --surface: #1a1921;
+  --surface-2: #1f1e27;
+  --border: #2a2833;
+  --border-strong: #363342;
+  --text: #f2f1f9;
+  --text-2: #c4c2d0;
+  --muted: #8a8896;
+  --accent: #8c71ff;
+  --accent-2: #a995ff;
+  --accent-soft: #26203b;
+  --accent-ink: #b5a4ff;
+  --primary: #f2f1f9;
+  --primary-ink: #15141a;
+  --success: #5cc09a;
+  --warning: #e0a84a;
+  --danger: #f07a72;
+  --danger-soft: #3a1f22;
+  --dot: #2b2935;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+:root {
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --sidebar-w: 236px;
+  --topbar-h: 58px;
+}

@@ -1,0 +1,115 @@
+{
+  "retrieval": [
+    {
+      "scale": 1,
+      "documents": 15,
+      "chunks": 43,
+      "ingest_s": 0.4,
+      "index_ms": 3.8,
+      "query_p50_ms": 2.04,
+      "query_p95_ms": 5.14,
+      "recall@1": 1.0,
+      "recall@3": 1.0,
+      "recall@5": 1.0,
+      "mrr": 1.0
+    },
+    {
+      "scale": 3,
+      "documents": 19,
+      "chunks": 109,
+      "ingest_s": 0.61,
+      "index_ms": 10.5,
+      "query_p50_ms": 3.43,
+      "query_p95_ms": 4.85,
+      "recall@1": 0.88,
+      "recall@3": 1.0,
+      "recall@5": 1.0,
+      "mrr": 0.938
+    }
+  ],
+  "harness": {
+    "facts": {
+      "candidates": 300,
+      "kept": 30,
+      "cap_respected": true,
+      "mean_importance_kept": 0.943,
+      "mean_importance_random_30": 0.511,
+      "mean_importance_ideal_30": 0.945,
+      "replacements_logged": 49
+    },
+    "notes": {
+      "bad_notes": 25,
+      "rejected_bad": 25,
+      "good_notes": 20,
+      "rejected_good": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "signal": {
+      "documents": 15,
+      "precision@k": 1.0,
+      "k": 12,
+      "noise_ranked_last": true
+    },
+    "tabular": {
+      "checks": 8,
+      "exact": 8,
+      "accuracy": 1.0
+    }
+  },
+  "discovery": {
+    "mode": "offline (scripted model)",
+    "model": "scripted-test-model",
+    "status": "completed",
+    "documents": 15,
+    "seconds": 0.4,
+    "opportunities": 2,
+    "repetitive_activities": 8,
+    "facts": 1,
+    "hours_week_discovered": null,
+    "hours_year_discovered": null,
+    "hours_week_planted": 15.25,
+    "hours_year_planted": 702,
+    "planted_tasks": 4,
+    "planted_tasks_found": null,
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "items": [
+      {
+        "title": "Confronto revisioni distinta base",
+        "hours_week": 6.0,
+        "priority": "alta"
+      },
+      {
+        "title": "Report giornaliero di produzione",
+        "hours_week": 4.0,
+        "priority": "media"
+      }
+    ]
+  },
+  "automations": {
+    "mode": "offline (scripted model)",
+    "rows": [
+      {
+        "automation": "Confronto revisioni distinta base",
+        "run": "success",
+        "runtime_s": 0.0,
+        "matched_task": "Ricopiatura delle revisioni di distinta base nel gestionale",
+        "before_h_week": 3.8,
+        "after_h_week": 0.1,
+        "saved_h_year": 168
+      },
+      {
+        "automation": "Confronto revisioni distinta base",
+        "run": "success",
+        "runtime_s": 0.0,
+        "matched_task": "—",
+        "before_h_week": 0.0,
+        "after_h_week": 0.0,
+        "saved_h_year": 0
+      }
+    ],
+    "total_saved_h_year": 168,
+    "success_rate": 1.0
+  }
+}

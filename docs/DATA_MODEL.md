@@ -1,0 +1,53 @@
+# Data model
+
+Oct 3, 2026 · @Marco
+
+## Local SQLite (`husk.db`) — all product data
+
+Defined in `app/gateways/sqlite/migrations/001_init.sql`; Pydantic models in `app/data/models/`.
+
+| Table | Content | Retention |
+| --- | --- | --- |
+| `orgs`, `users`, `user_settings` | Local identity (email/name stay local), theme, personality, **language** (`en` default, `it`) | Until account removed |
+| `sessions` | SHA-256 of UI session cookies | 30 days, never exported |
+| `user_ai_keys` | Per-user Regolo.ai key (provided by Husk AI), saved only after Regolo accepted it; `key_hint` (last 4), model, `verified_at` | Until replaced/removed; **never exported**, never returned by the API |
+| `documents`, `chunks`, `tabular_profiles` | Uploaded documents (metadata + converted markdown), chunks, sheet structure; `source_path` = relative path for folder uploads (migration 004, display only) | Until deleted by the user |
+| `discovery_runs`, `discovery_steps`, `agent_checkpoints` | Runs, per-step outputs, resume state; run errors stored as `error_key` + `error_params` (migration 003) so the UI shows them in any language | Kept as history |
+| `doc_signals`, `opportunities` | Signal ranking and the opportunity map per run | Kept with the run |
+| `facts`, `fact_history` | Company profile (≤30) and replaced facts | Until reset |
+| `networks`, `network_notes`, `memory_docs` | Knowledge networks, notes, versioned markdown artefacts | Kept networks live with their automation |
+| `automations`, `automation_versions`, `automation_runs` | Graphs, every version, local run history | Until deleted |
+| `chats`, `chat_messages`, `proposals` | Builder conversations and pending proposals. Messages sent from a suggestion carry `meta.origin = "suggestion"`; proposals carry `suggestion_id` | Until deleted |
+| `suggestions` | What Husk noticed after documents changed (migration 004): kind, status (`new → seen → applied/dismissed`), automation, documents, title/body/prompt, checked evidence, confidence | Kept as history; exported with backups |
+| `token_usage` | Tokens per org/user/day/model (local only) | Kept |
+| `kv` | Cached maintenance/release status, last user | — |
+
+Original files: `documents/<org>/<doc_id>.<ext>`. BM25 index: `bm25/<org>/` (rebuilt on import).
+
+### Single-file backup
+
+Settings → **Esporta** writes `exports/husk-export-<timestamp>.db`: a `VACUUM INTO` snapshot plus `husk_export_meta` (format, versions, org ids) and `husk_export_files` (every original document as a BLOB with SHA-256). Sessions and AI keys are stripped; on import the importing user keeps their own key.
+**Importa** validates the file (integrity check, format, org, file hashes, safe paths), writes a safety copy (`exports/pre-import-*.db`), copies the snapshot into the live database with SQLite's online backup API, restores the files, migrates and rebuilds the indexes.
+
+## Neon `husk-core` — anonymous, read-only Data API
+
+Pydantic models: `app/data/neon/models.py`, one per table, matching the technical plan exactly (tested in `test/test_neon_maintenance.py`). SQL: `app/gateways/neon/husk_core_schema.sql`.
+
+Husk holds **no Neon credential**. It sends plain HTTPS GETs with **no Authorization header** to the Neon Data API, which runs them as the `anonymous` role. That role can read exactly two views and nothing else (also enforced by a test):
+
+| View (exposed schema `public`) | Source | Husk uses it for |
+| --- | --- | --- |
+| `public.husk_maintenance` | `ops.maintenance` (current and upcoming windows) | **Maintenance switch**: polled at startup and every 60 s. A blocking window shows the full-screen notice and pauses AI and automation runs. Every upcoming window is announced: startup modal once per window (≤24 h ahead, also on the login screen), countdown banner in the last hour, warning before starting a discovery ≤30 min ahead, one desktop notification 10 min before a blocking window. Cached locally for offline starts |
+| `public.husk_releases` | `ops.releases` | "Versione disponibile" notice |
+
+Requests: `GET {NEON_DATA_API_URL}/husk_maintenance?select=…&ends_at=gt.<now>&order=starts_at.asc` and `GET {NEON_DATA_API_URL}/husk_releases?component=eq.husk`.
+
+**Not done by Husk (needs a verified identity, so it belongs to husk-gateway):** reading `billing.billing_state`, and writing `core.organizations` / `core.users`. The other tables (`billing.stripe_events`, `usage.*`, `runtime.*`, `audit.log`) are modelled only.
+
+Setup on Neon:
+1. Enable the Data API on the branch and keep `anonymous` as the anonymous role.
+2. Run the bottom section of `husk_core_schema.sql` (views + grants).
+3. Put the REST endpoint in `NEON_DATA_API_URL`.
+
+- [ ] Verify on a real branch that requests with **no** Authorization header are served as `anonymous`. Neon's docs disagree on this: the settings page says yes, the access-control page says anonymous access "still uses a JWT". If a token turns out to be required, Husk needs an anonymous-token step before the GET.
+- [ ] The schema has no pricing-plan column (only `status` and `installation_paid_at`); a plan tier needs a technical-plan change first.

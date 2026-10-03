@@ -1,0 +1,18 @@
+Company_memory/
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+app/frontend/node_modules/
+app/frontend/dist/
+benchmarks/results/*.png
+benchmarks/datasets/generated/
+benchmarks/fictional_company/
+.DS_Store
+
+# Private Neon setup (tables + Data API permissions), applied by hand
+sql/neon_husk_core_setup.sql
