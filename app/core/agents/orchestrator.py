@@ -241,7 +241,11 @@ class DiscoveryOrchestrator:
         p = (idx + (done / max(total, 1))) / len(STEP_ORDER)
         run.progress = p
         self.runs.update(run)
-        self._emit(run, "progress", step, progress=p, key=key, params=params)
+        self._emit(run, "progress", step, progress=p, key=key, params={"done": done, "total": total, **params})
+
+    def _reading(self, run: DiscoveryRun, finished: int, total: int) -> None:
+        """Parallel summaries are one counter for the user, never one line per document."""
+        self._sub_progress(run, DiscoveryStepId.extract, finished, total, "discovery.event.reading")
 
     # 1
     async def _step_load(self, run: DiscoveryRun, hint: str | None) -> dict[str, Any]:
@@ -274,8 +278,6 @@ class DiscoveryOrchestrator:
         async def one(doc) -> None:  # type: ignore[no-untyped-def]
             nonlocal finished
             async with gate:
-                self._sub_progress(run, DiscoveryStepId.extract, finished, len(docs), "discovery.event.analyzing",
-                                   file=doc.filename)
                 started = time.perf_counter()
                 card, fresh = await summarizer.card_for(doc)
                 timings[doc.id] = {"file": doc.filename, "kind": card.kind.value, "model": card.model,
@@ -287,7 +289,9 @@ class DiscoveryOrchestrator:
                     heuristic_score=card.signal if card.model is None else 0, llm_score=card.signal if card.model else None,
                     doc_type=card.doc_type, department=card.department, reasons=card.reasons[:6])])
                 finished += 1
+                self._reading(run, finished, len(docs))
 
+        self._reading(run, finished, len(docs))
         await asyncio.gather(*(one(d) for d in docs if d.id not in done))
         # documents that hit the deadline: rebuild their full card in the background, for the next run
         late = []
@@ -381,6 +385,7 @@ class DiscoveryOrchestrator:
         failed: list[str] = []
         lock = asyncio.Lock()
         done = 0
+        self._sub_progress(run, DiscoveryStepId.map, 0, len(opps), "discovery.event.drafting")
 
         async def one(opp: Opportunity) -> str | None:
             nonlocal done
@@ -390,7 +395,6 @@ class DiscoveryOrchestrator:
             if net is None:
                 return None
             async with gate:
-                self._sub_progress(run, DiscoveryStepId.map, done, len(opps), "discovery.event.drafting", title=opp.title)
                 try:
                     draft, graph = await self.builder.draft(opp, net, hint)
                 except Exception as exc:  # one invalid draft never fails the run: the opportunity stays, retryable
@@ -410,6 +414,7 @@ class DiscoveryOrchestrator:
                 opp.automation_id = auto.id
                 done += 1
                 self.runs.save_opportunities(run.id, opps)
+                self._sub_progress(run, DiscoveryStepId.map, done, len(opps), "discovery.event.drafting")
             return auto.id
 
         created = [a for a in await asyncio.gather(*(one(o) for o in opps)) if a]

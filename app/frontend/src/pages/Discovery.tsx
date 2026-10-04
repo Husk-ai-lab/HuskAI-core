@@ -11,12 +11,13 @@ import { TopBar } from "../components/TopBar";
 import { useI18n } from "../i18n";
 import { hoursValue, pad2 } from "../lib/format";
 import { useDiscoveryState, useDocuments, useSystem } from "../lib/hooks";
+import { stageOf, stageViews } from "../lib/discoveryStages";
 import { WORK_WARNING_MIN, minutesUntil, nextBlocking, useNow } from "../lib/maintenance";
 
 /** Working weeks per year used to annualise the weekly estimate (stated in the UI). */
 const WEEKS_PER_YEAR = 46;
 
-interface RunEvent { key?: string | null; params?: Record<string, string | number> }
+interface RunEvent { key?: string | null; step?: string | null; params?: Record<string, string | number> }
 
 function useRunEvents(runId: string | undefined, onEnd: () => void): RunEvent | null {
   const [last, setLast] = useState<RunEvent | null>(null);
@@ -27,7 +28,7 @@ function useRunEvents(runId: string | undefined, onEnd: () => void): RunEvent | 
     const refresh = () => qc.invalidateQueries({ queryKey: ["discovery-state"] });
     const handler = (e: MessageEvent) => {
       const d = JSON.parse(e.data) as RunEvent;
-      if (d.key) setLast(d);
+      if (d.key && !d.key.startsWith("discovery.steps.")) setLast(d);  // step titles are the stage rows, not log lines
       refresh();
     };
     ["step_started", "step_done", "progress", "log", "waiting_network"].forEach((n) => es.addEventListener(n, handler as EventListener));
@@ -73,30 +74,31 @@ function Start({ ready, onStart, busy, error }: { ready: number; onStart: () => 
   );
 }
 
-function Running({ view, event }: { view: DiscoveryRunView; event: RunEvent | null }) {
+export function Running({ view, event }: { view: DiscoveryRunView; event: RunEvent | null }) {
   const { t } = useI18n();
   const r = view.run;
-  const idx = Math.max(0, view.steps.findIndex((s) => s.status === "running" || s.status === "pending"));
-  const current = view.steps.find((s) => s.status === "running") ?? view.steps[idx];
-  const label = (step: string) => t(`discovery.steps.${step}`);
+  const stages = stageViews(view.steps);
+  const idx = Math.max(0, stages.findIndex((s) => s.status === "running" || s.status === "pending"));
+  const current = stages[idx];
+  // One calm line: only the latest event of the stage on screen, so a late event of a finished stage never shows.
+  const line = r.status === "waiting_network" ? t("discovery.event.waiting_network")
+    : event?.key && stageOf(event.step) === current?.id ? t(event.key, event.params) : "";
   return (
     <div className="hero-split">
       <div>
-        <div className="eyebrow">{t("discovery.running_eyebrow", { step: Math.min(idx + 1, 7), total: 7 })}</div>
+        <div className="eyebrow">{t("discovery.running_eyebrow", { step: Math.min(idx + 1, stages.length), total: stages.length })}</div>
         <h1 className="title">{t("discovery.running_title")}</h1>
-        <div className="progress-head"><h3>{current ? label(current.step) : ""}</h3><span>{Math.round(r.progress * 100)}%</span></div>
+        <div className="progress-head"><h3>{current ? t(`discovery.stages.${current.id}`) : ""}</h3><span>{Math.round(r.progress * 100)}%</span></div>
         <div className="bar"><i style={{ width: `${Math.max(4, r.progress * 100)}%` }} /></div>
         <ul className="steps7">
-          {view.steps.map((s) => (
-            <li key={s.step} className={s.status}>
+          {stages.map((s) => (
+            <li key={s.id} className={s.status}>
               <span className="ico">{s.status === "done" ? <Check size={13} color="var(--success)" /> : s.status === "failed" ? <X size={13} /> : <span className="ring" />}</span>
-              {label(s.step)}
+              {t(`discovery.stages.${s.id}`)}
             </li>
           ))}
         </ul>
-        <div className="log-line">
-          {r.status === "waiting_network" ? t("discovery.event.waiting_network") : event?.key ? t(event.key, event.params) : ""}
-        </div>
+        <div className="log-line">{line}</div>
       </div>
       <RobotArm working />
     </div>

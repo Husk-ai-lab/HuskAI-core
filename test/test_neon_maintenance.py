@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import ast
+import base64
 import inspect
+import json
 import pathlib
 import re
+import time
 import uuid
 from datetime import timedelta
 
@@ -23,6 +26,18 @@ from app.helpers.time import utcnow
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 API = "https://ep-test.apirest.c-2.eu-central-1.aws.neon.tech/neondb/rest/v1"
+AUTH = "https://ep-test.neonauth.c-2.eu-central-1.aws.neon.tech/neondb/auth"
+TOKEN_URL = f"{AUTH}/token/anonymous"
+
+
+def _jwt(exp_in_s: int) -> str:
+    """Unsigned JWT-shaped token: the client only reads `exp`."""
+    enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")  # noqa: E731
+    return f"{enc({'alg': 'none'})}.{enc({'role': 'anonymous', 'exp': int(time.time()) + exp_in_s})}.sig"
+
+
+def _token_route(exp_in_s: int = 600):  # type: ignore[no-untyped-def]
+    return respx.get(TOKEN_URL).mock(return_value=httpx.Response(200, json={"token": _jwt(exp_in_s)}))
 
 
 class FakeNeon:
@@ -160,45 +175,93 @@ async def test_not_configured_never_blocks(services) -> None:  # type: ignore[no
 
 # --- anonymous Data API client ---------------------------------------------------------------
 @respx.mock
-async def test_data_api_is_anonymous_and_read_only() -> None:
+async def test_data_api_sends_the_anonymous_token_and_is_read_only() -> None:
     w = _window(True)
+    tok = _token_route()
     route = respx.get(f"{API}/husk_maintenance").mock(return_value=httpx.Response(200, json=[_row(w)]))
-    neon = DataApiNeon(API)
+    neon = DataApiNeon(API, AUTH)
     got = await neon.active_maintenance()
     assert got[0].id == w.id and got[0].blocking
     req = route.calls.last.request
     assert req.method == "GET"
-    assert "authorization" not in {k.lower() for k in req.headers}  # no key, no token
+    assert req.headers["authorization"] == f"Bearer {json.loads(tok.calls.last.response.content)['token']}"
+    assert "authorization" not in {k.lower() for k in tok.calls.last.request.headers}  # the token call has no credential
     assert req.url.params["ends_at"].startswith("gt.") and req.url.params["order"] == "starts_at.asc"
     await neon.close()
 
 
 @respx.mock
 async def test_data_api_releases() -> None:
+    _token_route()
     route = respx.get(f"{API}/husk_releases").mock(return_value=httpx.Response(200, json=[{
         "component": "husk", "channel": "stable", "version": "0.3.0", "min_version": "0.1.0",
         "assets": {"aarch64-apple-darwin": {"url": "https://x", "sha256": "ab", "size": 1}},
         "published_at": utcnow().isoformat()}]))
-    rels = await DataApiNeon(API).releases("husk")
+    rels = await DataApiNeon(API, AUTH).releases("husk")
     assert rels[0].version == "0.3.0" and route.calls.last.request.url.params["component"] == "eq.husk"
 
 
 @respx.mock
-async def test_data_api_errors_fall_back_to_cache(services) -> None:  # type: ignore[no-untyped-def]
+async def test_anonymous_token_is_cached_then_refreshed_before_expiry() -> None:
+    tok = _token_route(600)
+    respx.get(f"{API}/husk_releases").mock(return_value=httpx.Response(200, json=[]))
+    neon = DataApiNeon(API, AUTH)
+    await neon.releases("husk")
+    await neon.releases("husk")
+    assert tok.call_count == 1  # cached
+    neon._token_exp = time.time() + 30  # inside the 60 s refresh margin
+    await neon.releases("husk")
+    assert tok.call_count == 2
+
+
+@respx.mock
+async def test_rejected_token_is_renewed_once() -> None:
+    tok = _token_route()
+    data = respx.get(f"{API}/husk_releases").mock(side_effect=[
+        httpx.Response(400, json={"message": "token expired"}), httpx.Response(200, json=[])])
+    assert await DataApiNeon(API, AUTH).releases("husk") == []
+    assert tok.call_count == 2 and data.call_count == 2
+    respx.get(f"{API}/husk_maintenance").mock(return_value=httpx.Response(400, json={}))
+    with pytest.raises(httpx.HTTPStatusError):  # still 400 after the retry: surfaced, not looped
+        await DataApiNeon(API, AUTH).active_maintenance()
+
+
+@respx.mock
+async def test_token_is_never_persisted_or_logged(services, caplog) -> None:  # type: ignore[no-untyped-def]
+    tok = _token_route()
     respx.get(f"{API}/husk_maintenance").mock(return_value=httpx.Response(200, json=[_row(_window(True))]))
     respx.get(f"{API}/husk_releases").mock(return_value=httpx.Response(200, json=[]))
-    await MaintenanceMonitor(DataApiNeon(API), services.db, "0.1.0").check()
+    with caplog.at_level("DEBUG"):
+        await MaintenanceMonitor(DataApiNeon(API, AUTH), services.db, "0.1.0").check()
+    secret = json.loads(tok.calls.last.response.content)["token"]
+    assert secret not in caplog.text
+    assert secret not in json.dumps([services.db.kv_get(k) for k in ("maintenance_status", "release_status")], default=str)
+
+
+@respx.mock
+async def test_data_api_errors_fall_back_to_cache_and_warn_once(services, caplog) -> None:  # type: ignore[no-untyped-def]
+    _token_route()
+    respx.get(f"{API}/husk_maintenance").mock(return_value=httpx.Response(200, json=[_row(_window(True))]))
+    respx.get(f"{API}/husk_releases").mock(return_value=httpx.Response(200, json=[]))
+    await MaintenanceMonitor(DataApiNeon(API, AUTH), services.db, "0.1.0").check()
     respx.get(f"{API}/husk_maintenance").mock(return_value=httpx.Response(503))
-    mon = MaintenanceMonitor(DataApiNeon(API), services.db, "0.1.0")
-    await mon.check()
+    mon = MaintenanceMonitor(DataApiNeon(API, AUTH), services.db, "0.1.0")
+    with caplog.at_level("WARNING"):
+        for _ in range(3):
+            await mon.check()
     assert mon.blocking and mon.status.source == "cache"
+    assert sum("maintenance check failed" in r.message for r in caplog.records) == 1  # not every poll
 
 
-def test_data_api_requires_https_and_build() -> None:
+def test_data_api_requires_https_and_both_urls() -> None:
     with pytest.raises(ValueError):
-        DataApiNeon("http://insecure.example/rest/v1")
-    assert isinstance(build_neon(Settings(HUSK_ENV="test", NEON_DATA_API_URL=API)), DataApiNeon)
-    assert isinstance(build_neon(Settings(HUSK_ENV="test", NEON_DATA_API_URL=None)), NullNeon)
+        DataApiNeon("http://insecure.example/rest/v1", AUTH)
+    with pytest.raises(ValueError):
+        DataApiNeon(API, "http://insecure.example/auth")
+    both = Settings(HUSK_ENV="test", NEON_DATA_API_URL=API, NEON_AUTH_URL=AUTH)
+    assert isinstance(build_neon(both), DataApiNeon)
+    assert isinstance(build_neon(Settings(HUSK_ENV="test", NEON_DATA_API_URL=API, NEON_AUTH_URL=None)), NullNeon)
+    assert isinstance(build_neon(Settings(HUSK_ENV="test", NEON_DATA_API_URL=None, NEON_AUTH_URL=AUTH)), NullNeon)
 
 
 # --- API behaviour ---------------------------------------------------------------------------
@@ -231,8 +294,10 @@ def _code_only(source: str) -> str:
 
 def test_no_database_credential_anywhere() -> None:
     src = _code_only(inspect.getsource(neon_gateway))
-    for forbidden in ("asyncpg", "postgres://", "postgresql://", "Authorization", "billing", "core.", "usage.", "INSERT"):
+    for forbidden in ("asyncpg", "postgres://", "postgresql://", "billing", "core.", "usage.", "INSERT", "api_key", "password"):
         assert forbidden not in src, forbidden
+    # the only credential-like header is the short-lived anonymous token fetched from Neon Auth
+    assert src.count("Authorization") == 1 and "/token/anonymous" in src
     for py in (ROOT / "app").rglob("*.py"):
         text = py.read_text("utf-8")
         assert "import asyncpg" not in text and "NEON_DATABASE_URL" not in text, py

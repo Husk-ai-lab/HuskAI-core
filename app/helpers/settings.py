@@ -71,8 +71,10 @@ class Settings(BaseSettings):
     zitadel_project_id: str | None = Field(None, validation_alias=AliasChoices("ZITADEL_PROJECT_ID"))
 
     # --- Neon husk-core: anonymous Data API, read-only (maintenance + releases) -------
-    # Public by design: no credential. Reads only the views granted to `anonymous`.
+    # Public by design: no credential. Reads only the views granted to `anonymous`, with a short-lived
+    # anonymous token from Neon Auth (the Data API rejects requests without a JWT).
     neon_data_api_url: str | None = Field(config.NEON_DATA_API_URL, validation_alias=AliasChoices("NEON_DATA_API_URL"))
+    neon_auth_url: str | None = Field(config.NEON_AUTH_URL, validation_alias=AliasChoices("NEON_AUTH_URL"))
     maintenance_poll_s: int = Field(60, validation_alias=AliasChoices("HUSK_MAINTENANCE_POLL_S"))
 
     # --- Husk Studio (development debugger, optional) --------------------------------

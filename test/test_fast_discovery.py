@@ -76,3 +76,22 @@ async def test_slow_document_gets_a_basic_card_within_the_deadline(services) -> 
     card, _ = await Summarizer(services.agent_context(ORG, USER)).card_for(doc)
     assert time.perf_counter() - started < 0.9
     assert card.model == "fallback" and card.version == 0
+
+
+def test_parallel_work_is_reported_as_counters_not_names(client, services) -> None:  # type: ignore[no-untyped-def]
+    """Summaries and drafts run in parallel: the UI gets "n of total", never one line per file or title."""
+    from test.conftest import upload_samples
+    from test.test_discovery_e2e import wait_run
+
+    upload_samples(client)
+    run = client.post("/api/v1/discovery/runs").json()["run"]
+    assert wait_run(client, run["id"])["run"]["status"] == "completed"
+    events = list(services.events._backlog[f"discovery:{run['id']}"])
+    reading = [e for e in events if e["key"] == "discovery.event.reading"]
+    drafting = [e for e in events if e["key"] == "discovery.event.drafting"]
+    assert reading and drafting
+    for e in reading + drafting:
+        assert set(e["params"]) == {"done", "total"} and e["params"]["done"] <= e["params"]["total"]
+    assert reading[-1]["params"]["done"] == reading[-1]["params"]["total"]
+    assert drafting[-1]["params"]["done"] == drafting[-1]["params"]["total"]
+    assert not any(e["key"] in ("discovery.event.analyzing",) for e in events)

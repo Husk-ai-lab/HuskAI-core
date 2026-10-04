@@ -1,4 +1,4 @@
-"""Maintenance switch (Neon ops.maintenance via the anonymous Data API).
+"""Maintenance switch (Neon ops.maintenance via the anonymous Data API, anonymous token).
 
 Polled at startup and every HUSK_MAINTENANCE_POLL_S seconds. A blocking window pauses AI
 work and automation runs and shows a full-screen notice; a non-blocking one shows a banner.
@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+
+import httpx
 
 from app.data.models.system import MaintenanceStatus, MaintenanceWindow, ReleaseNotice
 from app.data.neon.models import Channel
@@ -48,6 +50,7 @@ class MaintenanceMonitor:
         self.release = ReleaseNotice.model_validate(rel) if rel else ReleaseNotice(current=version)
         self.release.current = version
         self._task: asyncio.Task | None = None
+        self._last_error: str | None = None  # warn when the failure changes, not every poll
 
     @property
     def blocking(self) -> bool:
@@ -63,9 +66,17 @@ class MaintenanceMonitor:
         try:
             windows = await self.neon.active_maintenance()
         except Exception as exc:
-            log.warning("maintenance check failed (%s); using cached status", type(exc).__name__)
+            name = type(exc).__name__
+            if isinstance(exc, httpx.HTTPStatusError):
+                name = f"{name} {exc.response.status_code}"
+            if name != self._last_error:
+                log.warning("maintenance check failed (%s); using cached status", name)
+                self._last_error = name
             self.status.source = "cache"
             return self.status
+        if self._last_error:
+            log.info("maintenance check recovered")
+            self._last_error = None
         now = utcnow()
         current = [w for w in windows if w.starts_at <= now < w.ends_at]
         upcoming = sorted((w for w in windows if w.starts_at > now), key=lambda w: w.starts_at)

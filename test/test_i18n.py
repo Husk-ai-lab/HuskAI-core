@@ -174,6 +174,14 @@ def test_config_holds_no_secrets() -> None:
         assert not any(w in name for w in ("SECRET", "PASSWORD", "API_KEY", "TOKEN", "DATABASE_URL")), name
 
 
+@pytest.mark.parametrize("lang", ["en", "it"])
+def test_discovery_copy_never_sells_a_free_pre_purchase_map(lang: str) -> None:
+    """Login means the installation is paid. The "free map" is the separate Discovery web app, not this screen."""
+    banned = re.compile(r"\bfree\b|gratuit|obblig|obligation|no strings|senza impegno", re.I)
+    bad = {k: v for k, v in catalogue(lang).items() if k.startswith("discovery.") and banned.search(v)}
+    assert not bad, bad
+
+
 def test_model_id_matching() -> None:
     ids = ["meta/Llama-3.3-70B-Instruct", "openai/gpt-oss-120b", "Qwen3-8B"]
     assert pick_model("gpt oss 120B", ids) == "openai/gpt-oss-120b"

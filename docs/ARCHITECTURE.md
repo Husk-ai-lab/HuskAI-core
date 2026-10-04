@@ -63,7 +63,7 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 
 Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<org>/` (index, rebuildable), `outputs/<org>/` (automation outputs), `exports/` (backups), `logs/`.
 
-**Neon (`husk-core`) is read anonymously and read-only** through the Neon Data API: two public views, the maintenance switch and release notices. No credential and no Authorization header; nothing is written. See [DATA_MODEL.md](DATA_MODEL.md).
+**Neon (`husk-core`) is read anonymously and read-only** through the Neon Data API: two public views, the maintenance switch and release notices. No credential: each call carries a short-lived anonymous token from Neon Auth, held in memory only; nothing is written. See [DATA_MODEL.md](DATA_MODEL.md).
 
 ## Multi-tenancy (B2B)
 
@@ -94,7 +94,7 @@ Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<o
 | Plan rule | MVP | Way back |
 | --- | --- | --- |
 | Rule 3 — no paid secret on the customer's computer | Regolo key provided by Husk AI, entered by the user after login, verified with Regolo, stored in local `user_ai_keys` (`.env` = developer fallback) | Point `LLMProvider` at `husk-gateway`; drop `user_ai_keys` |
-| Husk never talks to Neon directly | Anonymous, read-only Neon Data API for two public views (maintenance, releases). **No credential on the machine** | Point `NeonGateway` at `/v1/status` |
+| Husk never talks to Neon directly | Anonymous, read-only Neon Data API for two public views (maintenance, releases), with a short-lived anonymous Neon Auth token. **No stored credential on the machine** | Point `NeonGateway` at `/v1/status` |
 | Paywall (rule 6) | Not implemented: billing state needs a verified identity, so it waits for husk-gateway | Gateway `/v1/entitlement` |
 | Tecnico / Non tecnico profiles | One view for everyone | Re-introduce with a setting |
 | Fly.io 24/7 runtime | "Attiva" = local scheduler only | Deploy endpoint in the gateway |

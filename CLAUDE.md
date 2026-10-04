@@ -16,7 +16,7 @@ The plain **Husk** product: FastAPI + React (Vite) on `127.0.0.1`, ZITADEL login
 
 ## Hard rules
 
-1. **All product data stays local (SQLite + files).** Neon is reached ONLY through the anonymous Data API: read-only GETs of `public.husk_maintenance` and `public.husk_releases`, no credential, no Authorization header. Never add a Neon credential to the app; billing state and identity writes belong to husk-gateway. Never add Neon columns not in the technical plan.
+1. **All product data stays local (SQLite + files).** Neon is reached ONLY through the anonymous Data API: read-only GETs of `public.husk_maintenance` and `public.husk_releases` with a short-lived anonymous Neon Auth token (the Data API rejects requests without a JWT): no stored credential, no user JWT. Never add a Neon credential to the app; billing state and identity writes belong to husk-gateway. Never add Neon columns not in the technical plan.
 2. **No code coupling with Husk Studio.** Talk only via OTLP and advertised MCP tools. `test_no_code_coupling_with_studio` must stay green. Studio MCP tools reach the Builder only through the read-only allowlist and only when useful (`harness/studio_tools.py`); self-heal messages always end in a proposal. Errors store `trace_id` + `traced`, never a link.
 3. **Every product row is `org_id`-scoped.** Go through the repositories in `gateways/sqlite/repositories.py`.
 4. **Login only.** No guest mode, no sign-up routes (tested).

@@ -23,8 +23,11 @@ MAX_NETWORK_DOCS = 4  # larger link components are split at their weakest edges
 GATE_DEEPER = 0.6
 GATE_REPETITIVE = 0.5
 
-# Neon husk-core — anonymous, read-only Data API (maintenance + releases views only).
+# Neon husk-core — anonymous, read-only Data API (maintenance + releases views only). The Data API accepts
+# only JWTs: the app fetches a short-lived `anonymous` token from Neon Auth (public, no secret) for each session.
 NEON_DATA_API_URL = "https://ep-cold-wind-b19p2mw3.apirest.c-5.eu-central-1.aws.neon.tech/neondb/rest/v1"
+# Neon Auth base URL of the husk-core branch (Neon console → Auth, anonymous tokens on). Unset = Neon checks off.
+NEON_AUTH_URL: str | None = None
 
 # Husk Studio — the optional local debugger. Where users can get it when it isn't running.
 HUSK_STUDIO_INSTALL_URL = "https://github.com/Husk-ai-lab/husk-ai"

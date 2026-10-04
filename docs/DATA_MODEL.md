@@ -34,7 +34,7 @@ Settings → **Esporta** writes `exports/husk-export-<timestamp>.db`: a `VACUUM 
 
 Pydantic models: `app/data/neon/models.py`, one per table, matching the technical plan exactly (tested in `test/test_neon_maintenance.py`). SQL: `app/gateways/neon/husk_core_schema.sql`.
 
-Husk holds **no Neon credential**. It sends plain HTTPS GETs with **no Authorization header** to the Neon Data API, which runs them as the `anonymous` role. That role can read exactly two views and nothing else (also enforced by a test):
+Husk holds **no Neon credential**. The Data API only accepts JWTs (a request with no token gets `400 missing authentication credentials`, verified on the real endpoint, 4 Oct 2026), so each GET carries a **short-lived anonymous token** from Neon Auth (`GET {NEON_AUTH_URL}/token/anonymous`: no sign-in, no secret, role claim `anonymous`). The token lives in memory only, is renewed 60 s before it expires or once after a 400/401, and is never stored or logged. The Data API runs the GET as the `anonymous` role. That role can read exactly two views and nothing else (also enforced by a test):
 
 | View (exposed schema `public`) | Source | Husk uses it for |
 | --- | --- | --- |
@@ -46,9 +46,10 @@ Requests: `GET {NEON_DATA_API_URL}/husk_maintenance?select=…&ends_at=gt.<now>&
 **Not done by Husk (needs a verified identity, so it belongs to husk-gateway):** reading `billing.billing_state`, and writing `core.organizations` / `core.users`. The other tables (`billing.stripe_events`, `usage.*`, `runtime.*`, `audit.log`) are modelled only.
 
 Setup on Neon:
-1. Enable the Data API on the branch and keep `anonymous` as the anonymous role.
-2. Run the bottom section of `husk_core_schema.sql` (views + grants).
-3. Put the REST endpoint in `NEON_DATA_API_URL`.
+1. Enable the Data API on the branch and keep `anonymous` as the anonymous role (JWT role claim key `.role`).
+2. Enable **Neon Auth** on the branch with **anonymous tokens on**.
+3. Run the bottom section of `husk_core_schema.sql` (views + grants).
+4. Put the REST endpoint in `NEON_DATA_API_URL` and the Neon Auth base URL in `NEON_AUTH_URL` (`app/config.py`). Until `NEON_AUTH_URL` is set the app runs with Neon checks off.
 
-- [ ] Verify on a real branch that requests with **no** Authorization header are served as `anonymous`. Neon's docs disagree on this: the settings page says yes, the access-control page says anonymous access "still uses a JWT". If a token turns out to be required, Husk needs an anonymous-token step before the GET.
+- [ ] Verify live, once Neon Auth is enabled: `GET {NEON_AUTH_URL}/token/anonymous` returns a token (the client reads `token`, `access_token` or `jwt`), and the two views answer 200 with it as the `anonymous` role.
 - [ ] The schema has no pricing-plan column (only `status` and `installation_paid_at`); a plan tier needs a technical-plan change first.

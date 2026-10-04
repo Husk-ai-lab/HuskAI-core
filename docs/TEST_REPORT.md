@@ -6,10 +6,10 @@ Oct 4, 2026 · @Marco · run after moving discovery to document cards + a decisi
 
 | Suite | Result | Time |
 | --- | --- | --- |
-| Backend — pytest (`test/`) | **144 passed**, 0 failed, 0 skipped (warnings as errors) | 17.0 s |
-| Backend line coverage (`app/`) | **89%** (6,849 statements, 784 missed); `gateways/decisions` 80–100% | — |
+| Backend — pytest (`test/`) | **150 passed**, 0 failed, 0 skipped (warnings as errors) | ~20 s |
+| Backend line coverage (`app/`) | 89% at the last measurement (Oct 4, before the Neon token and progress changes; `coverage` is not installed here, so not re-measured) | — |
 | Frontend — TypeScript (`tsc -b`) | clean | — |
-| Frontend — vitest | **60 passed** (incl. the per-file no-hard-coded-text guard over every `.tsx` file) | 0.8 s |
+| Frontend — vitest | **64 passed** (incl. the 4 discovery-stage tests and the per-file no-hard-coded-text guard over every `.tsx` file) | 0.8 s |
 | Lint — ruff (`app test benchmarks installer.py`) | all checks passed | — |
 | Benchmarks — offline (`python -m benchmarks.report`) | all ran; results below | ~10 s |
 | Desktop binary — `installer.py --smoke` | built (187 MB, one-folder), `/health` → `{"status":"ok"}` | ~3 min |
@@ -40,7 +40,7 @@ Each test gets its own temporary data folder and SQLite database.
 
 ## What each test file verifies
 
-New in this round: `test_jev_discovery.py` (Jev request shape vs the documented API, batching, 402, metering; combined key split and two-part verification; candidate-pair cap; edge gating and components; assessment and BM25 scoping to flagged documents; full discovery on the decision model; Venice key required), `test_document_cards.py` (cards, cache, fallback, concurrency), `test_fast_discovery.py` (loop repair, failed draft skipped, reasoning policy low/medium/never high, summary deadline), `test_token_metering.py` (per step/model, budget guard, offline benchmark), `test_upload_limit.py` (50-document cap).
+New in this round: `test_jev_discovery.py` (Jev request shape vs the documented API, batching, 402, metering; combined key split and two-part verification; candidate-pair cap; edge gating and components; assessment and BM25 scoping to flagged documents; full discovery on the decision model; Venice key required), `test_document_cards.py` (cards, cache, fallback, concurrency), `test_fast_discovery.py` (loop repair, failed draft skipped, reasoning policy low/medium/never high, summary deadline, progress reported as counters), `test_i18n.py` (discovery copy never sells a "free" pre-purchase map), `discovery.test.tsx` (4 grouped stages, one calm status line), `test_token_metering.py` (per step/model, budget guard, offline benchmark), `test_upload_limit.py` (50-document cap).
 
 
 ### `test_studio_chat.py` — Husk Studio in the product (10)
@@ -126,7 +126,7 @@ Frontend `suggestions.test.tsx` (8): bulb dot only with unread; snackbar on an S
 | `test_tabular_tools` | Missing values, BOM rev B vs C diff, daily periodicity, aggregate, filter |
 | `test_sqlite_db_document` | `.db` files ingested and queried as tables |
 
-### `test_i18n.py` — languages and public config (14)
+### `test_i18n.py` — languages and public config (16)
 | Test | Verifies |
 | --- | --- |
 | `test_supported_languages_have_catalogues` | Every language in `app/config.py` has a catalogue; default is `en` |
@@ -158,7 +158,7 @@ Frontend `suggestions.test.tsx` (8): bulb dot only with unread; snackbar on an S
 | `test_env_key_is_a_developer_fallback` | `.env` key used only when the user has none |
 | `test_mask` | Only the last 4 characters are ever shown |
 
-### `test_neon_maintenance.py` — Neon via the anonymous Data API, maintenance alerts (18)
+### `test_neon_maintenance.py` — Neon via the anonymous Data API, maintenance alerts (21)
 | Test | Verifies |
 | --- | --- |
 | `test_blocking_window_blocks` | An active blocking window blocks; release notice computed |
@@ -170,13 +170,16 @@ Frontend `suggestions.test.tsx` (8): bulb dot only with unread; snackbar on an S
 | `test_system_status_exposes_upcoming_before_login` | Upcoming windows visible without a session (login screen alert) |
 | `test_offline_uses_cache` | Neon unreachable after a restart → cached blocking status still applies |
 | `test_not_configured_never_blocks` | No `NEON_DATA_API_URL` → never blocks |
-| `test_data_api_is_anonymous_and_read_only` | GET only, **no Authorization header**, correct PostgREST filters |
+| `test_data_api_sends_the_anonymous_token_and_is_read_only` | GET only, Bearer = the anonymous Neon Auth token (the token call itself has no credential), correct PostgREST filters |
+| `test_anonymous_token_is_cached_then_refreshed_before_expiry` | One token fetch for many calls; renewed inside the 60 s margin |
+| `test_rejected_token_is_renewed_once` | A 400 renews the token and retries once; a second 400 surfaces |
+| `test_token_is_never_persisted_or_logged` | The token is absent from logs and SQLite |
 | `test_data_api_releases` | Release rows parsed; `component=eq.husk` |
-| `test_data_api_errors_fall_back_to_cache` | HTTP 503 from the Data API → cached status |
-| `test_data_api_requires_https_and_build` | Plain `http://` refused; the right gateway is chosen from settings |
+| `test_data_api_errors_fall_back_to_cache_and_warn_once` | HTTP 503 → cached status; one warning, not one per poll |
+| `test_data_api_requires_https_and_both_urls` | Plain `http://` refused; the gateway needs both URLs, else Neon checks are off |
 | `test_maintenance_blocks_ai_endpoints` | During maintenance discovery returns 503 with the Italian message; documents still work |
 | `test_me_exposes_no_billing` | `/me` returns only user + settings |
-| `test_no_database_credential_anywhere` | No `asyncpg`, DSN, Authorization header, billing/core/usage access or INSERT in the Neon gateway code; no `NEON_DATABASE_URL` in the app |
+| `test_no_database_credential_anywhere` | No `asyncpg`, DSN, key or password, billing/core/usage access or INSERT in the Neon gateway code; the only `Authorization` is the anonymous Neon Auth token; no `NEON_DATABASE_URL` in the app |
 | `test_anonymous_grants_are_only_the_two_views` | The SQL grants `anonymous` exactly: USAGE on `public`, SELECT on the two views |
 | `test_neon_models_match_plan_schema` | The 11 Pydantic models match the technical plan's columns exactly |
 
@@ -274,7 +277,7 @@ AI-quality numbers (hours discovered against the ~702 h/year of planted repetiti
 - [ ] **Real model following the language instruction** (Italian vs English output from gpt-oss-120b on Regolo)
 - [ ] **Desktop notification** on Windows (only macOS `osascript` and Linux `notify-send` are wired)
 - [ ] **Real ZITADEL**: hosted login, refresh, logout redirect, project roles in tokens, sign-up disabled on the instance
-- [ ] **Real Neon Data API**: requests **without** an Authorization header served as `anonymous` (the docs disagree), PostgREST filters on the views, and that only the two views are readable
+- [ ] **Real Neon Data API** (after enabling Neon Auth): the anonymous token is issued and accepted, PostgREST filters on the views, and that only the two views are readable
 - [ ] **Running Husk Studio**: OTLP spans arriving, MCP tool names, the run deep-link route
 - [ ] **Real scheduling**: a cron trigger firing and a watched folder reacting while Husk runs
 - [ ] **UI end-to-end**: browser tests (e.g. Playwright) for upload → discovery → chat. Currently only a manual visual check

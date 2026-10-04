@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS audit.log (
 
 -- ---------------------------------------------------------------------------------------
 -- Public read surface for the Husk desktop app: Neon Data API, `anonymous` role.
--- Enable the Data API on the branch, keep `anonymous` as the anonymous role, expose `public`.
+-- Enable the Data API on the branch, keep `anonymous` as the anonymous role, expose `public`, and enable
+-- Neon Auth with anonymous tokens: the Data API accepts only JWTs, the app sends a short-lived anonymous one.
 -- Nothing else is granted to `anonymous`: no billing, no core, no usage, no runtime, no audit.
 -- The views run with their owner's rights, so `anonymous` needs no access to `ops` itself.
 -- ---------------------------------------------------------------------------------------
