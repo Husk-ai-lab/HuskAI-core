@@ -2,6 +2,7 @@ import { ArrowRight, ChevronRight, Search, Upload } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { automationIcon } from "../components/icons";
+import { StudioAction } from "../components/StudioAction";
 import { TopBar } from "../components/TopBar";
 import { UploadModal } from "../components/UploadModal";
 import { useT } from "../i18n";
@@ -45,6 +46,7 @@ export function Automations() {
                       <div className="row-meta">
                         <span>{t("common.source", { source: a.source_document_ids.slice(0, 1).map(docName).join("") + (a.source_document_ids.length > 1 ? ` +${a.source_document_ids.length - 1}` : "") })}</span>
                         <span>{t("common.estimated_impact", { hours: hoursValue(a.hours_per_week) })}</span>
+                        {a.status === "errore" && <StudioAction />}
                       </div>
                     </div>
                     <span className={`status-dot ${a.status}`}>{t(`enums.automation_status.${a.status}`)}</span>

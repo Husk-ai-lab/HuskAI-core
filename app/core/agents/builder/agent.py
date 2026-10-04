@@ -12,7 +12,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 from app.core.agents.builder import prompts
-from app.core.agents.builder.compiler import compile_draft
+from app.core.agents.builder.compiler import compile_draft, repair_order
 from app.core.agents.builder.graph_ops import GraphOpError, apply_op, compact
 from app.core.agents.builder.Rag.context import builder_context, needs_notes
 from app.core.agents.builder.schemas import FlowDraft
@@ -20,11 +20,13 @@ from app.core.agents.harness.context import AgentContext
 from app.core.agents.harness.llm import human, structured, system
 from app.core.agents.harness.loop import run_tool_loop
 from app.core.agents.harness.personalities import get_personality
+from app.core.agents.harness.studio_tools import mentions_failure, studio_tools
 from app.core.agents.harness.tools import data_tools, knowledge_tools, memory_read_tools
 from app.data.models.agent import ChatMessage, MessageRole, Personality
-from app.data.models.automation import Automation, AutomationGraph
+from app.data.models.automation import Automation, AutomationGraph, AutomationRunStatus
 from app.data.models.discovery import Opportunity
 from app.data.models.knowledge import Network
+from app.gateways.sqlite.repositories import AutomationRepo
 from app.helpers.logging import get_logger
 from app.helpers.text import truncate
 from app.i18n import t
@@ -95,7 +97,7 @@ class BuilderAgent:
             system(prompts.SYSTEM.format(write_in=ctx.write_in(), personality="")
                    + (f"\nHint from the debugger: {hint}" if hint else "")),
             human(prompts.DRAFT.format(
-                title=opp.title, explanation=opp.explanation, hours=opp.hours_per_week,
+                title=opp.title, explanation=opp.explanation, hours=opp.hours_per_week, brief=opp.builder_prompt or "(none)",
                 profile=ctx.memory.profile.markdown(ctx.language), notes=truncate(notes, 9000),
                 documents=json.dumps(docs, ensure_ascii=False),
             )),
@@ -105,7 +107,11 @@ class BuilderAgent:
             draft = await structured(ctx.model(), FlowDraft, msgs, config={"run_name": "builder.draft"})
             try:
                 return draft, compile_draft(draft)
-            except Exception as exc:  # invalid graph: tell the model exactly why, once
+            except Exception:
+                pass
+            try:  # deterministic repair first (loops, dangling refs): no extra model call
+                return draft, compile_draft(repair_order(draft.model_copy(deep=True)))
+            except Exception as exc:  # still invalid: tell the model exactly why, once
                 last = exc
                 msgs = msgs + [AIMessage(content=draft.model_dump_json()),
                                HumanMessage(content=f"The flow is not valid: {exc}. Fix it.")]
@@ -179,9 +185,12 @@ class BuilderAgent:
         selected_node_id: str | None,
         emit: Emit | None = None,
         suggestion_evidence: str | None = None,
+        self_heal_trace: str | None = None,
+        studio_hint: str | None = None,
     ) -> ChatOutcome:
-        """`suggestion_evidence` set → the request comes from a Husk suggestion: extra rules, tagged message,
-        and the result is ALWAYS a proposal, whatever the personality."""
+        """`suggestion_evidence` set → the request comes from a Husk suggestion; `self_heal_trace` set → from
+        "Diagnose with Husk Studio". Both get stricter rules, a tagged message, and ALWAYS end in a proposal,
+        whatever the personality. `studio_hint` is Studio's diagnosis when retrying a crashed request."""
         ctx = self.ctx
         personality = get_personality(personality_id, ctx.language)
         state: dict[str, Any] = {"graph": automation.graph.model_copy(deep=True), "ops": [], "automation_id": automation.id}
@@ -194,24 +203,34 @@ class BuilderAgent:
         memory = builder_context(ctx, automation.id, user_text)
         if needs_notes(user_text) and emit:
             await emit("status", {"key": "chat.status_reading_documents"})
+        failed = self._last_failed_run(automation.id)
         msgs: list[BaseMessage] = [
             system(prompts.SYSTEM.format(write_in=ctx.write_in(), personality=personality.prompt)),
             system(prompts.CHAT_CONTEXT.format(
                 title=automation.title, automation_id=automation.id, description=automation.description,
                 flow=compact(automation.graph), selected=selected,
                 notes_flag=", network notes" if needs_notes(user_text) else "", memory=truncate(memory, 9000),
-            )),
+            ) + ("\n\n" + failed if failed else "")),
         ]
         for m in history[-12:]:
             if m.role == MessageRole.user:
-                msgs.append(HumanMessage(content=_tagged(m.content) if m.meta.get("origin") == "suggestion" else m.content))
+                msgs.append(HumanMessage(content=_tagged(m.content, m.meta.get("origin"))))
             elif m.role == MessageRole.assistant:
                 msgs.append(AIMessage(content=m.content))
         is_suggestion = suggestion_evidence is not None
+        is_self_heal = self_heal_trace is not None
         if is_suggestion:
             msgs.append(system(prompts.SUGGESTION_RULES.format(evidence=suggestion_evidence or "(none)")))
-        msgs.append(HumanMessage(content=_tagged(user_text) if is_suggestion else user_text))
+        if is_self_heal:
+            msgs.append(system(prompts.SELF_HEAL_RULES.format(trace_id=self_heal_trace or "(unknown)")))
+        if studio_hint:
+            msgs.append(system(prompts.STUDIO_HINT.format(hint=truncate(studio_hint, 3000))))
+        origin = "suggestion" if is_suggestion else "self_heal" if is_self_heal else None
+        msgs.append(HumanMessage(content=_tagged(user_text, origin)))
         tools = self._graph_tools(state, personality) + knowledge_tools(ctx) + data_tools(ctx) + memory_read_tools(ctx)
+        # Studio's read-only MCP tools only when a failure is on the table (their schemas cost tokens)
+        if is_self_heal or failed or mentions_failure(user_text):
+            tools += studio_tools(ctx.studio)
 
         async def on_event(kind: str, data: dict[str, Any]) -> None:
             if emit:
@@ -226,9 +245,19 @@ class BuilderAgent:
             reply=reply,
             operations=state["ops"],
             graph=state["graph"] if state["ops"] else None,
-            proposal_required=(personality.requires_confirmation or is_suggestion) and bool(state["ops"]),
+            proposal_required=(personality.requires_confirmation or is_suggestion or is_self_heal) and bool(state["ops"]),
         )
 
+    def _last_failed_run(self, automation_id: str) -> str | None:
+        """Context line when the most recent run of this automation failed (enables Studio tools)."""
+        runs = AutomationRepo(self.ctx.db, self.ctx.org_id).runs(automation_id, limit=1)
+        if not runs or runs[0].status != AutomationRunStatus.failed:
+            return None
+        r = runs[0]
+        node = next((entry.label for entry in r.log if entry.status == "error"), "-")
+        return prompts.FAILED_RUN.format(trace_id=r.trace_id or "-", node=node, error=truncate(r.error or "-", 300))
 
-def _tagged(text: str) -> str:
-    return f"{prompts.SUGGESTION_TAG}\n{text}"
+
+def _tagged(text: str, origin: str | None) -> str:
+    tag = {"suggestion": prompts.SUGGESTION_TAG, "self_heal": prompts.SELF_HEAL_TAG}.get(origin or "")
+    return f"{tag}\n{text}" if tag else text

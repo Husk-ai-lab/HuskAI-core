@@ -6,6 +6,7 @@ import type { Personality, PersonalityId } from "../api/types";
 import { TopBar } from "../components/TopBar";
 import { LanguageSwitch } from "../components/LanguageSwitch";
 import { locale, useI18n } from "../i18n";
+import { AI_KEY_MIN, AiKeyField } from "../components/AiKeyField";
 import { useAiKey, useMe, useSystem } from "../lib/hooks";
 import { useTheme } from "../lib/theme";
 
@@ -24,6 +25,10 @@ export function Settings() {
   const [newKey, setNewKey] = useState<string | null>(null);
   const [keyMsg, setKeyMsg] = useState<{ ok: boolean; text: string } | null>(null);
   if (!me) return null;
+  const removeKey = async () => {
+    await api.del("/api/v1/user/ai-key");
+    await qc.invalidateQueries({ queryKey: ["ai-key"] });  // no key left: the app returns to the key screen
+  };
   const saveKey = async () => {
     if (!newKey) return;
     setKeyMsg(null);
@@ -91,14 +96,14 @@ export function Settings() {
               </div>
               {newKey === null ? (
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <span className="mono" style={{ fontSize: 12 }}>{aiKey?.hint ?? "—"}{aiKey?.model ? ` · ${aiKey.model}` : ""}</span>
+                  <span className="mono" style={{ fontSize: 12 }}>{t("settings.ai_key_hints", { regolo: aiKey?.hint ?? "—", venice: aiKey?.decision_hint ?? "—" })}</span>
                   <button className="btn sm" onClick={() => setNewKey("")}>{t("settings.change")}</button>
+                  {aiKey?.source === "user" && <button className="btn sm ghost" onClick={removeKey}>{t("settings.ai_key_remove")}</button>}
                 </div>
               ) : (
                 <div style={{ display: "flex", gap: 8 }}>
-                  <input className="input mono" type="password" autoComplete="off" placeholder={t("settings.new_key")} style={{ width: 220, height: 38 }}
-                         value={newKey} onChange={(e) => setNewKey(e.target.value)} autoFocus />
-                  <button className="btn sm primary" disabled={newKey.trim().length < 8} onClick={saveKey}>{t("settings.verify")}</button>
+                  <AiKeyField id="new-ai-key" compact value={newKey} onChange={setNewKey} placeholder={t("settings.new_key")} autoFocus />
+                  <button className="btn sm primary" disabled={newKey.trim().length < AI_KEY_MIN} onClick={saveKey}>{t("settings.verify")}</button>
                   <button className="btn sm ghost" onClick={() => { setNewKey(null); setKeyMsg(null); }}>{t("common.cancel")}</button>
                 </div>
               )}

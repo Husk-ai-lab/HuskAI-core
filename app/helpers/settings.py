@@ -29,6 +29,9 @@ def resource_root() -> Path:
     return Path(getattr(sys, "_MEIPASS", project_root()))
 
 
+
+Effort = Literal["low", "medium"]  # never "high" for now
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=project_root() / ".env",
@@ -48,8 +51,17 @@ class Settings(BaseSettings):
 
     # --- Regolo.ai (temporary: called directly until husk-gateway exists) -------------
     regolo_api_key: str | None = Field(None, validation_alias=AliasChoices("REGOLO_API_KEY"))
+    # --- Decision model (Venice Jev) ---------------------------------------------------
+    venice_api_key: str | None = Field(None, validation_alias=AliasChoices("VENICE_API_KEY"))  # dev fallback
+    venice_base_url: str = Field(config.VENICE_BASE_URL, validation_alias=AliasChoices("VENICE_BASE_URL"))
+    decision_model: str = Field(config.DECISION_MODEL, validation_alias=AliasChoices("HUSK_DECISION_MODEL"))
+    gate_related: float = Field(config.GATE_RELATED, validation_alias=AliasChoices("HUSK_GATE_RELATED"))
+    gate_deeper: float = Field(config.GATE_DEEPER, validation_alias=AliasChoices("HUSK_GATE_DEEPER"))
+    gate_repetitive: float = Field(config.GATE_REPETITIVE, validation_alias=AliasChoices("HUSK_GATE_REPETITIVE"))
+    max_network_docs: int = Field(config.MAX_NETWORK_DOCS, validation_alias=AliasChoices("HUSK_MAX_NETWORK_DOCS"))
     regolo_base_url: str = Field(config.REGOLO_BASE_URL, validation_alias=AliasChoices("REGOLO_BASE_URL"))
     regolo_model: str | None = Field(config.DEFAULT_REGOLO_MODEL, validation_alias=AliasChoices("REGOLO_MODEL"))
+    summary_model: str | None = Field(config.DEFAULT_SUMMARY_MODEL, validation_alias=AliasChoices("HUSK_SUMMARY_MODEL"))
     llm_temperature: float = Field(0.2, validation_alias=AliasChoices("HUSK_LLM_TEMPERATURE"))
     llm_timeout_s: float = Field(120.0, validation_alias=AliasChoices("HUSK_LLM_TIMEOUT_S"))
 
@@ -78,8 +90,22 @@ class Settings(BaseSettings):
 
     # --- Harness limits ---------------------------------------------------------------
     max_company_facts: int = 30
-    discovery_max_docs_deep: int = Field(8, validation_alias=AliasChoices("HUSK_DISCOVERY_MAX_DOCS"))
-    discovery_max_opportunities: int = Field(5, validation_alias=AliasChoices("HUSK_DISCOVERY_MAX_OPPS"))
+    discovery_max_docs_deep: int = Field(4, validation_alias=AliasChoices("HUSK_DISCOVERY_MAX_DOCS"))
+    max_documents: int = Field(config.MAX_DOCUMENTS_PER_ORG, validation_alias=AliasChoices("HUSK_MAX_DOCUMENTS"))
+    discovery_concurrency: int = Field(8, validation_alias=AliasChoices("HUSK_DISCOVERY_CONCURRENCY"))
+    builder_concurrency: int = Field(4, validation_alias=AliasChoices("HUSK_BUILDER_CONCURRENCY"))
+    # one document never holds up step 3: past this deadline it gets a basic card now and a full one later
+    summary_deadline_s: float = Field(25.0, validation_alias=AliasChoices("HUSK_SUMMARY_DEADLINE_S"))
+    # then wait up to this long for those late summaries before the Explorer runs (important files stay full)
+    summary_late_wait_s: float = Field(20.0, validation_alias=AliasChoices("HUSK_SUMMARY_LATE_WAIT_S"))
+    # Reasoning effort per role. Policy: low across discovery, medium for the Builder (it talks to the
+    # user) and automation runs. "high" is not allowed for now.
+    reasoning_summary: Effort = Field("low", validation_alias=AliasChoices("HUSK_REASONING_SUMMARY"))
+    reasoning_explorer: Effort = Field("low", validation_alias=AliasChoices("HUSK_REASONING_EXPLORER"))
+    reasoning_planner: Effort = Field("low", validation_alias=AliasChoices("HUSK_REASONING_PLANNER"))
+    reasoning_builder: Effort = Field("medium", validation_alias=AliasChoices("HUSK_REASONING_BUILDER"))
+    reasoning_runtime: Effort = Field("medium", validation_alias=AliasChoices("HUSK_REASONING_RUNTIME"))
+    discovery_max_opportunities: int = Field(8, validation_alias=AliasChoices("HUSK_DISCOVERY_MAX_OPPS"))
     agent_max_iterations: int = Field(10, validation_alias=AliasChoices("HUSK_AGENT_MAX_ITERATIONS"))
     # seconds after the LAST upload before suggestions are computed (one job per batch / folder)
     suggestions_debounce_s: float = Field(15.0, validation_alias=AliasChoices("HUSK_SUGGESTIONS_DEBOUNCE_S"))

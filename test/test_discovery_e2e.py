@@ -66,27 +66,28 @@ def test_discovery_requires_documents(client: TestClient) -> None:
 
 
 def test_discovery_resume_after_failure(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
-    from test.fakes import FakeProvider, default_handler
+    from test.fakes import FakeDecisionModel
 
     upload_samples(client)
     state = {"fail": True}
 
-    def flaky(messages, tools):  # type: ignore[no-untyped-def]
-        if tools == ["OpportunityMap"] and state["fail"]:
-            raise RuntimeError("modello non disponibile")
-        return default_handler(messages, tools)
+    class Flaky(FakeDecisionModel):
+        async def ask(self, user_id, org_id, st, questions):  # type: ignore[no-untyped-def]
+            if "repetitive" in questions and state["fail"]:
+                raise RuntimeError("modello decisionale non disponibile")
+            return await super().ask(user_id, org_id, st, questions)
 
-    services.llm = FakeProvider(flaky)
+    services.decisions = Flaky()
     run = client.post("/api/v1/discovery/runs").json()["run"]
     view = wait_run(client, run["id"])
     assert view["run"]["status"] == "failed"
     done_before = [s["step"] for s in view["steps"] if s["status"] == "done"]
-    assert done_before == ["load", "knowledge_base", "extract", "repetitive", "handoffs"]
+    assert done_before == ["load", "knowledge_base", "extract", "repetitive"]
 
     state["fail"] = False
     calls_before = services.llm.calls
     client.post(f"/api/v1/discovery/runs/{run['id']}/resume")
     view = wait_run(client, run["id"])
     assert view["run"]["status"] == "completed"
-    # resumed from the failed step: extraction/research were not paid for again
+    # resumed from the failed step: summaries and links were not paid for again
     assert services.llm.calls - calls_before < 10

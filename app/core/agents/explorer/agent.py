@@ -1,39 +1,38 @@
-"""Explorer: the discovery agent (the plan's "Scout" role).
+"""Explorer: the discovery agent (the plan's "Scout" role), confidence-driven over document cards.
 
-It ranks documents by automation signal, researches the strongest ones in depth writing
-notes into candidate knowledge networks, maps cross-document handoffs and proposes
-opportunities with estimated hours.
+Step 4 reads the shared card memory in three levels, each more expensive than the last, and only goes
+deeper where its own confidence is low (see docs/agents/EXPLORER_AGENT.md):
+
+  L0 `sketch`     one line per document → candidate activities + which cards to open
+  L1 `confirm`    the requested cards (activities A*, computed facts S*) → notes with evidence
+  L2 `deep_dive`  ≤ N documents: cited passages + neighbours (text) or a bounded data-tool loop (spreadsheet)
+
+Then it maps handoffs and proposes opportunities, each with a Builder-ready prompt.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from typing import Any
 
 from langchain_core.messages import BaseMessage
 
 from app.core.agents.explorer import prompts
-from app.core.agents.explorer.Rag.research import document_brief, neighbours
-from app.core.agents.explorer.Rag.signal import heuristic_signal
 from app.core.agents.explorer.schemas import (
-    DocumentAnalysis,
-    HandoffMap,
-    NotesExtraction,
-    OpportunityMap,
     SuggestionMap,
 )
 from app.core.agents.harness.context import AgentContext
 from app.core.agents.harness.llm import human, structured, system
-from app.core.agents.harness.loop import run_tool_loop
-from app.core.agents.harness.tools import data_tools, knowledge_tools, memory_read_tools, memory_write_tools
 from app.core.knowledge.memory.notes import NoteInvalid
 from app.data.models.automation import Automation
-from app.data.models.document import Document
-from app.data.models.knowledge import DocumentSignal, EvidenceRef, FactCandidate, Network
+from app.data.models.knowledge import DocumentCard, EvidenceRef, Network
+from app.gateways.decisions import questions as q
 from app.helpers.logging import get_logger
 from app.helpers.text import truncate
 
 log = get_logger("explorer")
-Log = Callable[[str], Awaitable[None]]
+
+TABLE_DIVE_ITERATIONS = 4
 
 
 class ExplorerAgent:
@@ -45,138 +44,175 @@ class ExplorerAgent:
     def _sys(self, extra: str = "") -> list[BaseMessage]:
         return [system(prompts.SYSTEM + "\n" + self.ctx.write_in() + ("\n" + extra if extra else ""))]
 
-    # --- step 3: extract + signal ranking -----------------------------------------------------
-    async def analyze(self, run_id: str, doc: Document, hint: str | None = None) -> DocumentSignal:
-        ks = self.ctx.knowledge
-        md = ks.docs.markdown(doc.id)
-        profiles = ks.docs.profiles(doc.id)
-        periodicity = []
-        if doc.kind.is_tabular:
-            tools = ks.tabular()
-            for p in profiles[:4]:
-                try:
-                    periodicity.append(tools.detect_periodicity(doc.id, sheet=p.sheet))
-                except Exception:
-                    pass
-        h_score, h_reasons = heuristic_signal(doc, md, profiles, periodicity)
-        brief = document_brief(self.ctx, doc.id)
-        if periodicity:
-            brief += "\nData cadence: " + "; ".join(str(p) for p in periodicity if p.get("cadence"))
-        msgs = self._sys(f"Hint from the debugger: {hint}" if hint else "") + [
-            human(prompts.ANALYZE.format(brief=brief, heuristics=", ".join(h_reasons) or "none"))
-        ]
-        analysis = await structured(self.ctx.model(), DocumentAnalysis, msgs)
-        ks.docs.set_department(doc.id, analysis.department[:40] if analysis.department else None)
-        for f in analysis.facts:
-            await self.ctx.memory.profile.add(
-                FactCandidate(
-                    text=f.text, category=f.category, importance=f.importance,
-                    evidence=[EvidenceRef(document_id=doc.id, quote=f.quote)],
-                )
-            )
-        score = round(0.4 * h_score + 0.6 * analysis.automation_signal, 3)
-        return DocumentSignal(
-            org_id=self.ctx.org_id, run_id=run_id, document_id=doc.id, score=score, heuristic_score=h_score,
-            llm_score=analysis.automation_signal, doc_type=analysis.doc_type, department=analysis.department,
-            reasons=(analysis.signal_reasons or []) + h_reasons,
-        )
+    def _profile(self) -> str:
+        return truncate(self.ctx.memory.profile.markdown(self.ctx.language), 3000)
 
-    # --- step 4: deep research into a candidate network -------------------------------------------
-    async def research(self, network: Network, document_id: str, existing_notes: str,
-                       log_fn: Log | None = None, hint: str | None = None) -> int:
+    # --- one-shot map: every network from the document lines ------------------------------------------
+    @staticmethod
+    def aliases(cards: list[DocumentCard]) -> dict[str, DocumentCard]:
+        return {f"D{i + 1:02d}": c for i, c in enumerate(cards)}
+
+    # --- step 4: link the documents with the decision model ---------------------------------------------
+    def cards_state(self, cards: list[DocumentCard], alias_of: dict[str, str]) -> str:
+        """The decision model's state: every card as one line + its summary (compact, not JSON)."""
+        out = []
+        for c in cards:
+            out.append(c.line(alias_of[c.document_id]))
+            if c.summary:
+                out.append("   " + truncate(c.summary, 420))
+        return "\n".join(out)
+
+    def candidate_pairs(self, cards: list[DocumentCard], alias_of: dict[str, str]) -> list[tuple[str, str]]:
+        """BM25 neighbours (top 4 per card) first, then shared departments/systems. ≤ 4 × documents, no n²."""
+        known = {c.document_id for c in cards}
+        cap = 4 * len(cards)
+        pairs: dict[tuple[str, str], None] = {}
+
+        def add(x: str, y: str) -> None:
+            if x != y and len(pairs) < cap:
+                pairs[tuple(sorted((alias_of[x], alias_of[y])))] = None  # type: ignore[index]
+
+        for c in cards:
+            probe = truncate(f"{c.title} {c.summary or c.sentence}", 600)
+            seen: list[str] = []
+            for h in self.ctx.knowledge.search_chunks(probe, k=24):
+                if h.document_id in known and h.document_id != c.document_id and h.document_id not in seen:
+                    seen.append(h.document_id)
+                if len(seen) == 4:
+                    break
+            for d in seen:
+                add(c.document_id, d)
+        def tags(c: DocumentCard) -> set[str]:
+            vals = list(c.signals.get("dept") or []) + list(c.signals.get("sys") or [])
+            return {str(v).strip().lower() for v in vals if str(v).strip()}
+        for i, a in enumerate(cards):
+            for b in cards[i + 1:]:
+                if tags(a) & tags(b):
+                    add(a.document_id, b.document_id)
+        return list(pairs)
+
+    async def link_documents(self, cards: list[DocumentCard], run_id: str) -> dict[str, Any]:
+        """doc_related for every candidate pair, relation_type for kept edges, networks = connected components
+        (split above `max_network_docs` by cutting the weakest edges); strong singletons become their own network."""
         ctx = self.ctx
-        tools = knowledge_tools(ctx) + data_tools(ctx) + memory_read_tools(ctx) + memory_write_tools(ctx)
-        prompt = prompts.RESEARCH.format(
-            document_id=document_id, network_id=network.id,
-            existing=existing_notes or "(none)", neighbours=neighbours(ctx, document_id) or "(none)",
-        )
-        msgs = self._sys(f"Hint from the debugger: {hint}" if hint else "") + [human(prompt)]
+        lang = ctx.language
+        by_alias = self.aliases(cards)
+        alias_of = {c.document_id: a for a, c in by_alias.items()}
+        state = self.cards_state(cards, alias_of)
+        pairs = self.candidate_pairs(cards, alias_of)
+        related = await ctx.decisions.ask(ctx.user_id, ctx.org_id, state,
+                                          {f"rel_{a}_{b}": q.doc_related(a, b, lang) for a, b in pairs}) if pairs else {}
+        gate = ctx.settings.gate_related
+        kept = [(a, b, related[f"rel_{a}_{b}"].p or 0.0) for a, b in pairs
+                if f"rel_{a}_{b}" in related and (related[f"rel_{a}_{b}"].p or 0.0) >= gate]
+        types = await ctx.decisions.ask(ctx.user_id, ctx.org_id, state,
+                                        {f"type_{a}_{b}": q.relation_type(a, b, lang) for a, b, _ in kept}) if kept else {}
+        edges = [{"a": a, "b": b, "p": round(p, 3), "type": (types[f"type_{a}_{b}"].choice if f"type_{a}_{b}" in types else None)}
+                 for a, b, p in kept]
+        groups = _components(edges, list(by_alias), max_size=ctx.settings.max_network_docs)
+        groups = [g for g in groups if len(g) > 1 or by_alias[g[0]].signal >= 0.6]
+        networks: dict[str, Any] = {}
+        for i, group in enumerate(sorted(groups, key=lambda g: -max(by_alias[a].signal for a in g))):
+            members = sorted(group, key=lambda a: -by_alias[a].signal)
+            net = ctx.memory.networks.create(run_id, by_alias[members[0]].title, [by_alias[a].document_id for a in members])
+            first_note: dict[str, str] = {}
+            for a in members:
+                if self.card_notes(net, by_alias[a]):
+                    first_note[a] = ctx.memory.networks.notes(net.id)[-1].id
+            for e in edges:
+                if e["a"] in first_note and e["b"] in first_note:
+                    ctx.memory.networks.link(first_note[e["a"]], first_note[e["b"]])
+            networks[f"N{i + 1}"] = {"net_id": net.id, "docs": members,
+                                     "edges": [e for e in edges if e["a"] in group and e["b"] in group]}
+        return {"pairs": len(pairs), "edges": edges, "networks": networks, "aliases": {a: c.document_id for a, c in by_alias.items()}}
 
-        async def on_event(kind: str, data: dict) -> None:
-            if log_fn and kind == "tool":
-                await log_fn(f"{data['name']}")
+    # --- step 5: assess each network with the decision model -----------------------------------------
+    async def assess(self, networks: dict[str, Any], cards: list[DocumentCard]) -> dict[str, Any]:
+        """Per network (parallel): repetitiveness (score), hours (8 buckets/month), deeper research per document."""
+        ctx = self.ctx
+        lang = ctx.language
+        by_alias = self.aliases(cards)
+        alias_of = {c.document_id: a for a, c in by_alias.items()}
 
+        async def one(nid: str, info: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+            members = [by_alias[a] for a in info["docs"] if a in by_alias]
+            links = "\n".join(f"{e['a']} ↔ {e['b']}: {q.RELATIONS.get(e['type'] or '', ('', e['type'] or '-'))[1 if lang != 'it' else 0]}"
+                              for e in info["edges"])
+            state = self.cards_state(members, alias_of) + (f"\nLinks:\n{links}" if links else "")
+            questions = {"repetitive": q.repetitiveness(lang), "hours": q.hours_wasted(lang)}
+            questions |= {f"deeper_{a}": q.needs_deeper_research(a, lang) for a in info["docs"]}
+            ans = await ctx.decisions.ask(ctx.user_id, ctx.org_id, state, questions)
+            rep = q.score_value(ans["repetitive"].probabilities) if "repetitive" in ans else 0.0
+            hours, spread = q.expected_hours_per_week(ans["hours"].probabilities) if "hours" in ans else (0.0, 0.0)
+            deeper = [a for a in info["docs"] if (ans.get(f"deeper_{a}") and (ans[f"deeper_{a}"].p or 0) >= ctx.settings.gate_deeper)]
+            return nid, {"repetitive": rep, "hours_per_week": hours, "hours_spread": spread, "deeper": deeper,
+                         "hours_probs": ans["hours"].probabilities if "hours" in ans else {}}
+
+        results = await asyncio.gather(*(one(nid, info) for nid, info in networks.items()))
+        return dict(results)
+
+    # --- card → notes without AI (Suggestions: bring a new document into a network) ----------------------
+    def card_notes(self, network: Network, card: DocumentCard) -> int:
+        """One complete note from the card's summary, evidence = its key quotes (or computed facts)."""
+        from app.i18n import t
+
+        claim = (card.summary or card.sentence).strip()
+        if claim and claim[-1] not in ".!?»)":
+            claim += "."
+        evidence = [q.to_ref() for q in card.quotes] or [EvidenceRef(document_id=card.document_id, quote=truncate(card.sentence, 300))]
+        dept = card.signals.get("dept") or ([card.department] if card.department else [])
         try:
-            await run_tool_loop(
-                ctx.model(), msgs, tools, max_iterations=ctx.settings.agent_max_iterations, on_event=on_event,
-                config={"run_name": "explorer.research", "metadata": {"network_id": network.id}},
-            )
-        except Exception as exc:
-            # Some models don't support tool calling: fall back to one structured extraction.
-            log.info("tool loop unavailable (%s), using structured extraction", type(exc).__name__)
-            await self._extract_fallback(network, document_id)
-        written = ctx.memory.networks.notes(network.id)
-        if not written:
-            await self._extract_fallback(network, document_id)
-            written = ctx.memory.networks.notes(network.id)
-        return len(written)
-
-    async def _extract_fallback(self, network: Network, document_id: str) -> None:
-        ctx = self.ctx
-        msgs = self._sys() + [human(prompts.EXTRACT_FALLBACK.format(
-            brief=document_brief(ctx, document_id), neighbours=neighbours(ctx, document_id) or "(none)"))]
-        result = await structured(ctx.model(), NotesExtraction, msgs)
-        title_to_id: dict[str, str] = {}
-        for d in result.notes:
-            try:
-                note = ctx.memory.networks.write_note(
-                    network.id, title=d.title, claim=d.claim, kind=d.kind, frequency=d.frequency, actors=d.actors,
-                    hours_per_week=d.hours_per_week,
-                    evidence=[EvidenceRef(document_id=d.evidence_document_id, chunk_id=d.evidence_chunk_id, quote=d.quote)],
-                )
-                title_to_id[d.title.lower()] = note.id
-            except NoteInvalid as exc:
-                log.debug("fallback note rejected: %s", exc.errors)
-        for d in result.notes:
-            a = title_to_id.get(d.title.lower())
-            for t in d.related_titles:
-                b = title_to_id.get(t.lower())
-                if a and b and a != b:
-                    ctx.memory.networks.link(a, b)
-
-    # --- step 5: cross-network handoffs -----------------------------------------------------------
-    async def map_handoffs(self, networks: list[Network]) -> int:
-        notes = [n for net in networks for n in self.ctx.memory.networks.notes(net.id)]
-        if len(notes) < 2:
+            self.ctx.memory.networks.write_note(
+                network.id, title=card.title, claim=claim, frequency=str(card.signals.get("freq") or "") or t("cards.freq_not_stated", self.ctx.language),
+                actors=list(dept)[:3], evidence=evidence[:4])
+            return 1
+        except NoteInvalid as exc:
+            log.debug("card note rejected: %s", exc.errors)
             return 0
-        listing = "\n".join(
-            f"- {n.id} | {n.title} | doc: {','.join(e.document_id for e in n.evidence)} | departments: {', '.join(n.actors)}"
-            for n in notes[:120]
-        )
-        result = await structured(self.ctx.model(), HandoffMap, self._sys() + [human(prompts.HANDOFFS.format(notes=listing))])
-        ids = {n.id for n in notes}
-        made = 0
-        for link in result.links:
-            if link.note_a in ids and link.note_b in ids and link.note_a != link.note_b:
-                self.ctx.memory.networks.link(link.note_a, link.note_b)
-                made += 1
-        return made
-
-    # --- step 6: impact --------------------------------------------------------------------------
-    async def propose_opportunities(self, networks: list[Network], max_opps: int) -> OpportunityMap:
-        notes = [n for net in networks for n in self.ctx.memory.networks.notes(net.id)]
-        lang = self.ctx.language
-        listing = "\n\n".join(truncate(n.render_markdown(lang), 900) for n in notes[:80])
-        msgs = self._sys() + [human(prompts.IMPACT.format(
-            max_opps=max_opps, profile=self.ctx.memory.profile.markdown(lang), notes=listing or "(none)"))]
-        result = await structured(self.ctx.model(), OpportunityMap, msgs)
-        known = {n.id for n in notes}
-        for o in result.opportunities:
-            o.note_ids = [i for i in o.note_ids if i in known]
-        result.opportunities = [o for o in result.opportunities if o.note_ids][:max_opps]
-        return result
 
     # --- suggestions: a document added after discovery --------------------------------------------
-    async def suggest_changes(self, doc: Document, automations: list[Automation]) -> SuggestionMap:
-        """Hypotheses only: the engine validates evidence and the Builder verifies before any change."""
+    async def suggest_changes(self, card: DocumentCard, automations: list[Automation]) -> SuggestionMap:
+        """Hypotheses only: the engine validates evidence and the Builder verifies before any change.
+        Reads the new document's card plus the passages it cites (not the whole document)."""
         ctx = self.ctx
-        chunks = ctx.knowledge.docs.chunks_for(doc.id)[:24]
+        cited = [q.chunk_id for q in card.quotes if q.chunk_id]
+        chunks = [c for c in (ctx.knowledge.docs.chunk(i) for i in dict.fromkeys(cited)) if c]
+        if not chunks:
+            chunks = ctx.knowledge.docs.chunks_for(card.document_id)[:8]
         passages = "\n\n".join(f"[{c.id}] {c.heading or ''}\n{truncate(c.text, 700)}" for c in chunks)
         listing = "\n".join(
             f"- {a.id} · {a.title} · {truncate(a.description, 240)} · docs: {', '.join(a.source_document_ids) or '-'}"
             for a in automations
         )
-        msgs = self._sys() + [human(prompts.SUGGEST.format(
-            passages=f"DOCUMENT {doc.id} — {doc.filename}\n{passages}" if passages else "(empty)",
-            automations=listing or "(none)", profile=ctx.memory.profile.markdown(ctx.language)))]
-        return await structured(ctx.model(), SuggestionMap, msgs)
+        body: dict[str, Any] = {"passages": f"{card.line()}\n{card.summary}\n\nDOCUMENT {card.document_id}\n{passages}" if passages
+                                else "(empty)", "automations": listing or "(none)", "profile": self._profile()}
+        msgs = self._sys() + [human(prompts.SUGGEST.format(**body))]
+        return await structured(ctx.model(role="explorer"), SuggestionMap, msgs)
+
+
+def _components(edges: list[dict[str, Any]], nodes: list[str], max_size: int = 8) -> list[list[str]]:
+    """Connected components; a component above `max_size` is split by dropping its weakest edges."""
+    def comps(es: list[dict[str, Any]]) -> list[list[str]]:
+        parent = {n: n for n in nodes}
+
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for e in es:
+            parent[find(e["a"])] = find(e["b"])
+        groups: dict[str, list[str]] = {}
+        for n in nodes:
+            groups.setdefault(find(n), []).append(n)
+        return list(groups.values())
+
+    active = sorted(edges, key=lambda e: e["p"])  # weakest first
+    groups = comps(active)
+    while any(len(g) > max_size for g in groups) and active:
+        big = next(g for g in groups if len(g) > max_size)
+        weakest = next(e for e in active if e["a"] in big and e["b"] in big)
+        active.remove(weakest)
+        groups = comps(active)
+    return groups

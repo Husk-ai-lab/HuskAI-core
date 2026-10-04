@@ -1,12 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Check, FileText, Lightbulb, Paperclip, X } from "lucide-react";
+import { Activity, ArrowUp, Check, FileText, Lightbulb, Paperclip, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, streamSSE } from "../api/client";
 import type { Automation, ChatMessage, ChatView, Personality, PersonalityId, Proposal, Suggestion } from "../api/types";
 import { useT } from "../i18n";
 import { useDocuments } from "../lib/hooks";
 import { Logo } from "./Logo";
-import { StudioLink } from "./StudioLink";
+import { DiagnoseButton, StudioAction } from "./StudioAction";
 
 function describeOp(op: Record<string, any>, t: (k: string) => string): string {
   const what = op.node?.label ?? op.node_id ?? (op.source ? `${op.source} → ${op.target}` : op.label ?? op.cron ?? "");
@@ -21,15 +21,22 @@ function DocChips({ ids, name }: { ids: string[]; name: (id: string) => string }
   return <div className="doc-chips">{ids.slice(0, 3).map((id) => <span key={id} className="doc-chip"><FileText size={11} /> {name(id)}</span>)}</div>;
 }
 
+/** A request Husk prepared (not typed by the user): sent marked as such only if left unchanged. */
+export type Prefill =
+  | { kind: "suggestion"; prompt: string; suggestion: Suggestion }
+  | { kind: "self_heal"; prompt: string; traceId: string };
+
 interface ChatPanelProps {
   automation: Automation;
   selectedNodeId: string | null;
   /** Opened from the Suggestions page: the composer is pre-filled with Husk's request, marked as such. */
   suggestion?: Suggestion | null;
   onSuggestionDone?: () => void;
+  /** "Diagnose with Husk Studio" from outside the chat (e.g. the failed test drawer). */
+  selfHeal?: { traceId: string; prompt: string; nonce: number } | null;
 }
 
-export function ChatPanel({ automation, selectedNodeId, suggestion = null, onSuggestionDone }: ChatPanelProps) {
+export function ChatPanel({ automation, selectedNodeId, suggestion = null, onSuggestionDone, selfHeal = null }: ChatPanelProps) {
   const qc = useQueryClient();
   const t = useT();
   const key = ["chat", automation.id];
@@ -41,21 +48,22 @@ export function ChatPanel({ automation, selectedNodeId, suggestion = null, onSug
   const [busy, setBusy] = useState(false);
   const [trace, setTrace] = useState<string | null>(null);
   const body = useRef<HTMLDivElement>(null);
-  const [pending, setPending] = useState<Suggestion | null>(null);
+  const [pending, setPending] = useState<Prefill | null>(null);
   const { data: docs } = useDocuments();
   const docName = (id: string) => docs?.find((d) => d.id === id)?.filename ?? id;
 
+  const prefill = (p: Prefill) => { setPending(p); setText(p.prompt); };
   useEffect(() => {
-    if (suggestion?.prompt) {
-      setPending(suggestion);
-      setText(suggestion.prompt);
-    }
+    if (suggestion?.prompt) prefill({ kind: "suggestion", prompt: suggestion.prompt, suggestion });
   }, [suggestion]);
-  const edited = !!pending && text.trim() !== (pending.prompt ?? "").trim();
-  const dropSuggestion = () => {
+  useEffect(() => {
+    if (selfHeal) prefill({ kind: "self_heal", prompt: selfHeal.prompt, traceId: selfHeal.traceId });
+  }, [selfHeal]);
+  const edited = !!pending && text.trim() !== pending.prompt.trim();
+  const dropPending = () => {
+    if (pending?.kind === "suggestion") onSuggestionDone?.();
     setPending(null);
     setText("");
-    onSuggestionDone?.();
   };
 
   useEffect(() => {
@@ -79,16 +87,22 @@ export function ChatPanel({ automation, selectedNodeId, suggestion = null, onSug
 
   const send = async (content: string) => {
     if (!data || !content.trim() || busy) return;
-    const fromSuggestion = pending;
+    const from = pending;
+    const unchanged = !!from && content.trim() === from.prompt.trim();
     setBusy(true);
     setText("");
-    if (fromSuggestion) {
+    if (from) {
       setPending(null);
-      onSuggestionDone?.();
+      if (from.kind === "suggestion") onSuggestionDone?.();
     }
     setTrace(t("chat.status_working"));
     try {
-      const payload = { content, selected_node_id: selectedNodeId, suggestion_id: fromSuggestion?.id ?? null };
+      const payload = {
+        content, selected_node_id: selectedNodeId,
+        suggestion_id: from?.kind === "suggestion" ? from.suggestion.id : null,
+        // a self-heal request is marked only when sent as prepared; edited text is the user's own request
+        self_heal: from?.kind === "self_heal" && unchanged ? { trace_id: from.traceId } : null,
+      };
       await streamSSE(`/api/v1/agent/chats/${data.chat.id}/messages`, payload, (ev, d) => {
         if (ev === "user" || ev === "message" || ev === "error") setMessages((m) => [...m, d as ChatMessage]);
         else if (ev === "status") setTrace(d.key ? t(d.key) : d.text);
@@ -132,16 +146,29 @@ export function ChatPanel({ automation, selectedNodeId, suggestion = null, onSug
             <p>{m.content}</p>
             <DocChips ids={(m.meta.document_ids as string[] | undefined) ?? []} name={docName} />
           </div>
+        ) : m.meta?.origin === "self_heal" ? (
+          <div key={m.id} className="msg suggestion-msg studio-msg">
+            <div className="who"><Activity size={12} /> {t("chat.self_heal_label")}</div>
+            <p>{m.content}</p>
+          </div>
         ) : (
           <div key={m.id} className={`msg ${m.role === "user" ? "user" : ""} ${m.meta?.error ? "err" : ""}`}>
             <div className="who">Husk</div>
             <p>{m.content}</p>
-            {Boolean(m.meta?.studio_url) && <StudioLink url={m.meta.studio_url as string} />}
+            {Boolean(m.meta?.error) && (
+              <div className="err-actions">
+                <StudioAction traceId={m.meta.trace_id as string | undefined} traced={m.meta.traced as boolean | undefined} />
+                {typeof m.meta.trace_id === "string" && (
+                  <DiagnoseButton onClick={() => prefill({ kind: "self_heal", traceId: m.meta.trace_id as string, prompt: t("chat.self_heal_prompt_chat") })} />
+                )}
+              </div>
+            )}
           </div>
         ))}
         {proposals.map((p) => (
           <div key={p.id} className="proposal">
             {p.suggestion_id && <div className="from-suggestion"><Lightbulb size={11} /> {t("chat.proposal_from_suggestion")}</div>}
+            {p.origin === "self_heal" && <div className="from-suggestion"><Activity size={11} /> {t("chat.proposal_from_studio")}</div>}
             <b>{t("chat.proposal_title")}</b>
             <ul>{p.operations.map((o, i) => <li key={i}>{describeOp(o, t)}</li>)}</ul>
             <div style={{ display: "flex", gap: 8 }}>
@@ -162,13 +189,13 @@ export function ChatPanel({ automation, selectedNodeId, suggestion = null, onSug
           {pending && (
             <div className="suggestion-frame">
               <div className="head">
-                <Lightbulb size={13} />
-                <b>{t("chat.suggestion_label")}</b>
+                {pending.kind === "suggestion" ? <Lightbulb size={13} /> : <Activity size={13} />}
+                <b>{t(pending.kind === "suggestion" ? "chat.suggestion_label" : "chat.self_heal_label")}</b>
                 <span className="spacer" />
-                <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={dropSuggestion} aria-label={t("common.cancel")}><X size={11} /></button>
+                <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={dropPending} aria-label={t("common.cancel")}><X size={11} /></button>
               </div>
-              <DocChips ids={pending.document_ids} name={docName} />
-              <div className="note">{t(edited ? "chat.suggestion_edited" : "chat.suggestion_note")}</div>
+              {pending.kind === "suggestion" && <DocChips ids={pending.suggestion.document_ids} name={docName} />}
+              <div className="note">{t(edited ? "chat.suggestion_edited" : pending.kind === "suggestion" ? "chat.suggestion_note" : "chat.self_heal_note")}</div>
             </div>
           )}
           <textarea
@@ -180,7 +207,7 @@ export function ChatPanel({ automation, selectedNodeId, suggestion = null, onSug
           <div className="bar2">
             <Paperclip size={14} className="muted" />
             <span className="sel">{selected ? t("chat.selected", { label: selected.label }) : ""}</span>
-            <button className="send" onClick={() => send(text)} disabled={busy || !text.trim()} aria-label={t(pending && !edited ? "chat.suggestion_send" : "chat.send")}><ArrowUp size={15} /></button>
+            <button className="send" onClick={() => send(text)} disabled={busy || !text.trim()} aria-label={t(pending && !edited ? (pending.kind === "suggestion" ? "chat.suggestion_send" : "chat.self_heal_send") : "chat.send")}><ArrowUp size={15} /></button>
           </div>
         </div>
       </div>

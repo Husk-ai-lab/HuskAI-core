@@ -12,7 +12,6 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 from app.core.agents.harness.context import AgentContext
-from app.core.knowledge.memory.notes import NoteInvalid
 from app.data.models.knowledge import EvidenceRef, FactCandidate, FactCategory, NoteKind
 from app.helpers.text import truncate
 
@@ -232,30 +231,3 @@ def memory_read_tools(ctx: AgentContext) -> list[BaseTool]:
     ]
 
 
-def memory_write_tools(ctx: AgentContext) -> list[BaseTool]:
-    nets = ctx.memory.networks
-
-    def write_note(network_id: str, title: str, claim: str, kind: NoteKind = NoteKind.task,
-                   frequency: str | None = None, actors: list[str] | None = None,
-                   evidence: list[EvidenceArg] | None = None, links: list[str] | None = None,
-                   hours_per_week: float | None = None, note_id: str | None = None) -> dict:
-        ev = [EvidenceRef(**(e.model_dump() if isinstance(e, BaseModel) else e)) for e in (evidence or [])]
-        try:
-            note = nets.write_note(
-                network_id, title=title, claim=claim, kind=kind, frequency=frequency, actors=actors,
-                evidence=ev, links=links, hours_per_week=hours_per_week, note_id=note_id,
-            )
-        except NoteInvalid as exc:
-            raise ValueError("note NOT saved, rewrite it in full: " + "; ".join(exc.errors)) from exc
-        return {"note_id": note.id, "version": note.version, "links": note.links}
-
-    def link_notes(note_a: str, note_b: str) -> str:
-        nets.link(note_a, note_b)
-        return "linked"
-
-    return [
-        StructuredTool.from_function(write_note, name="write_note", args_schema=WriteNoteArgs,
-                                     description="Create or rewrite IN FULL a network note. Every note must contain complete information with evidence."),
-        StructuredTool.from_function(link_notes, name="link_notes", args_schema=LinkArgs,
-                                     description="Link two notes that describe connected activities across documents."),
-    ]

@@ -371,3 +371,23 @@ mark { background: var(--accent); color: #fff; border-radius: 3px; padding: 0 2p
   .robot { display: none; }
 }
 .react-flow__background-pattern.dots, .react-flow__background circle { fill: var(--dot); }
+
+/* ---------- Husk Studio ---------- */
+.studio-link.install { border-style: dashed; color: var(--text-2); border-color: var(--border-strong); font-size: 10px; }
+.err-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.msg.studio-msg { border-style: dashed; }
+.studio-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; font-size: 12.5px; }
+.studio-card .head { display: flex; align-items: center; gap: 6px; }
+.studio-card .spacer { flex: 1; }
+.studio-card p { margin: 6px 0; color: var(--text-2); }
+.studio-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.studio-dot.on { background: var(--success); }
+.studio-card-link { color: var(--accent); font-weight: 600; text-decoration: none; display: inline-flex; gap: 4px; align-items: center; }
+.icon-btn.tiny { width: 22px; height: 22px; }
+.studio-advice { display: grid; grid-template-columns: 40px 1fr auto; gap: 16px; padding: 20px 22px; margin-bottom: 12px; }
+.snackbar .studio-link { color: inherit; border-color: currentColor; }
+.doc-card { font-size: 13px; margin-bottom: 6px; }
+.doc-card .sentence { margin: 0 0 8px; }
+.doc-card ul { margin: 0 0 8px; padding-left: 18px; color: var(--text-2); }
+.doc-card ul.mono { font-size: 11.5px; }
+.doc-card q { display: block; font-size: 12px; color: var(--muted); }

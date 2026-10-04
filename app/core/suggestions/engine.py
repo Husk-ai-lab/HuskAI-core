@@ -23,7 +23,9 @@ from typing import TYPE_CHECKING
 
 from app.core.agents.builder.agent import BuilderAgent
 from app.core.agents.explorer.agent import ExplorerAgent
+from app.core.agents.explorer.summarizer import Summarizer
 from app.core.agents.harness.context import AgentContext
+from app.core.agents.planner.agent import PlannerAgent
 from app.data.models.automation import Automation, AutomationStatus
 from app.data.models.discovery import Opportunity
 from app.data.models.document import Document, DocumentStatus
@@ -37,7 +39,7 @@ from app.data.models.suggestion import (
 from app.gateways.sqlite.repositories import AutomationRepo, DiscoveryRepo, SuggestionRepo, UserRepo
 from app.helpers.ids import new_id
 from app.helpers.logging import get_logger
-from app.helpers.text import truncate
+from app.helpers.text import quote_or_snippet, snippet
 from app.i18n import t
 
 if TYPE_CHECKING:
@@ -54,16 +56,7 @@ def channel(org_id: str) -> str:
     return f"suggestions:{org_id}"
 
 
-def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip().lower()
-
-
-def _snippet(text: str, limit: int = 240) -> str:
-    """Readable fallback quote: drop markdown table rules and pipes (spreadsheets become tables)."""
-    lines = [ln for ln in text.splitlines() if not re.fullmatch(r"[\s|:\-]*", ln)]
-    joined = " | ".join(lines) if "|" in text else " ".join(lines)
-    flat = re.sub(r"(\s*\|\s*)+", " · ", joined).strip(" ·")
-    return truncate(re.sub(r"\s+", " ", flat), limit)
+_snippet = snippet  # kept for callers/tests
 
 
 class SuggestionQueue:
@@ -167,17 +160,17 @@ class SuggestionEngine:
             return []
 
         explorer = ExplorerAgent(ctx)
+        summarizer = Summarizer(ctx)
         automations = AutomationRepo(self.services.db, self.org_id).list()
         before = {f.id: f for f in ctx.memory.repo.facts()}
-        job = new_id("sugg")
         created: list[Suggestion] = []
         for doc in docs:
             try:
-                signal = await explorer.analyze(job, doc)
-                if signal.score < MIN_SIGNAL:
+                card, _ = await summarizer.card_for(doc)  # the same shared card discovery uses (cached)
+                if card.signal < MIN_SIGNAL:
                     continue
                 candidates = self.candidates(ctx, doc, automations)
-                proposal = await explorer.suggest_changes(doc, candidates)
+                proposal = await explorer.suggest_changes(card, candidates)
             except Exception as exc:
                 log.warning("suggestions: document skipped doc=%s err=%s", doc.id, type(exc).__name__)
                 continue
@@ -219,7 +212,7 @@ class SuggestionEngine:
                 chunk = chunks.get(e.chunk_id)
                 if chunk is None:
                     continue
-                quote = e.quote if _norm(e.quote) and _norm(e.quote) in _norm(chunk.text) else _snippet(chunk.text)
+                quote = quote_or_snippet(e.quote, chunk.text)
                 evidence.append(SuggestionEvidence(document_id=doc.id, chunk_id=chunk.id, quote=quote))
             if not evidence:
                 continue
@@ -273,17 +266,19 @@ class SuggestionEngine:
 
     # --- applying -----------------------------------------------------------------------------
     async def create_draft(self, s: Suggestion) -> Automation:
-        """new_automation: research the documents into a network, then the Builder drafts (like discovery step 7)."""
+        """new_automation: card notes → a Planner brief (summary depth) → the Builder drafts (like discovery 6–7)."""
         ctx = self._ctx()
         explorer, builder = ExplorerAgent(ctx), BuilderAgent(ctx)
         net = ctx.memory.networks.create(f"sugg_{s.id}", s.title, list(s.document_ids))
-        for doc_id in s.document_ids:
-            if ctx.knowledge.docs.get(doc_id):
-                await explorer.research(net, doc_id, "")
+        cards = await self._card_notes(ctx, explorer, net, s.document_ids)
         net = ctx.memory.networks.get(net.id) or net
+        alias_of = {d: f"D{i + 1:02d}" for i, d in enumerate(net.document_ids)}
+        briefs = await PlannerAgent(ctx).briefs({"N1": (net, [])}, cards, alias_of)
+        brief = briefs.get("N1")
         opp = Opportunity(id=new_id("opp"), org_id=self.org_id, run_id=net.run_id, network_id=net.id, title=s.title,
                           explanation=s.body or s.title, source_document_ids=net.document_ids,
-                          hours_per_week=s.hours_per_week or 0)
+                          hours_per_week=(brief.hrs if brief else s.hours_per_week) or 0,
+                          builder_prompt=brief.prompt if brief else s.prompt or s.body)
         draft, graph = await builder.draft(opp, net)
         auto = Automation(
             id=new_id("auto"), org_id=self.org_id, title=draft.title or s.title,
@@ -309,13 +304,22 @@ class SuggestionEngine:
         net = ctx.memory.repo.network_for_automation(s.automation_id)
         if auto is None or net is None:
             return
-        explorer = ExplorerAgent(ctx)
-        existing = "\n".join(f"- {n.id}: {n.title}" for n in ctx.memory.networks.notes(net.id))[:4000]
-        for doc_id in s.document_ids:
-            if ctx.knowledge.docs.get(doc_id):
-                await explorer.research(net, doc_id, existing)
+        await self._card_notes(ctx, ExplorerAgent(ctx), net, s.document_ids)
         net = ctx.memory.networks.keep(net.id, auto.id)  # re-renders the notes markdown
         ctx.memory.networks.write_summary(auto.id, net.id, await BuilderAgent(ctx).summarize(auto.title, net))
         auto.source_document_ids = list(dict.fromkeys(auto.source_document_ids + [
             d for d in s.document_ids if ctx.knowledge.docs.get(d)]))
         autos.save(auto, new_version=False)
+
+    @staticmethod
+    async def _card_notes(ctx: AgentContext, explorer: ExplorerAgent, net, document_ids: list[str]) -> dict:  # type: ignore[no-untyped-def]
+        """Bring documents into a network from their cards (cached; no extra model call beyond a missing card)."""
+        summarizer = Summarizer(ctx)
+        cards = {}
+        for doc_id in document_ids:
+            doc = ctx.knowledge.docs.get(doc_id)
+            if doc:
+                card, _ = await summarizer.card_for(doc)
+                cards[doc_id] = card
+                explorer.card_notes(net, card)
+        return cards

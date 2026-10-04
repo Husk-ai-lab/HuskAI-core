@@ -40,7 +40,7 @@ class LLMDecisionProvider:
                    "Write the reason in " + self.ctx.language_name + "."),
             human(f"STATE:\n{state[:6000]}\n\nQUESTION: {question}\nOPTIONS: {', '.join(options)}"),
         ]
-        out = await structured(self.ctx.model(temperature=0), _Choice, msgs, config={"run_name": "automation.decision"})
+        out = await structured(self.ctx.model(temperature=0, role="runtime"), _Choice, msgs, config={"run_name": "automation.decision"})
         answer = out.answer.strip()
         if answer not in options:
             lowered = {o.lower(): o for o in options}

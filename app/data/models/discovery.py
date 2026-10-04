@@ -52,6 +52,7 @@ class DiscoveryRun(OrgScoped):
     error_key: str | None = None
     error_params: dict[str, Any] = Field(default_factory=dict)
     trace_id: str | None = None  # OpenTelemetry trace id, for the Husk Studio link
+    traced: bool = False  # the trace was exported to a running Husk Studio
     created_at: datetime = Field(default_factory=utcnow)
     finished_at: datetime | None = None
 
@@ -84,6 +85,7 @@ class Opportunity(OrgScoped):
     priority: Priority = Priority.media
     repetitive_activities: int = 0
     automation_id: str | None = None
+    builder_prompt: str | None = None  # Builder-ready brief written by the Explorer (step 6 → step 7)
 
 
 class StepView(HuskModel):
@@ -105,6 +107,7 @@ class DiscoveryReport(HuskModel):
     repetitive_activities: int
     total_hours_per_week: float
     items: list[Opportunity]
+    usage: dict[str, Any] = Field(default_factory=dict)  # {steps: {step: usage}, by_model, total}
 
 
 class DiscoveryState(StrEnum):

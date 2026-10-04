@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import Field
 
@@ -20,6 +21,8 @@ class EvidenceRef(HuskModel):
     chunk_id: str | None = None
     sheet: str | None = None
     quote: str | None = Field(None, max_length=400)
+    stat_id: str | None = None  # a computed spreadsheet fact on the document card (S1, S2…)
+    cells: str | None = None  # e.g. "Fatture!A2:K2"
 
     def label(self) -> str:
         parts = [self.document_id]
@@ -191,3 +194,109 @@ class MemoryDoc(OrgScoped):
     version: int
     markdown: str
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+# --- document cards (discovery step 3: the shared summary memory) ------------------------------
+CARD_VERSION = 2  # bump when the card prompt or the computed facts change: cached cards are rebuilt
+
+
+class CardKind(StrEnum):
+    text = "text"
+    table = "table"
+
+
+class CardEvidence(HuskModel):
+    """Text: passage id + verbatim quote. Spreadsheet: a computed fact id (+ sheet, cells)."""
+
+    document_id: str
+    chunk_id: str | None = None
+    quote: str | None = Field(None, max_length=400)
+    stat_id: str | None = None
+    sheet: str | None = None
+    cells: str | None = None
+
+    def to_ref(self) -> EvidenceRef:
+        return EvidenceRef(document_id=self.document_id, chunk_id=self.chunk_id, quote=self.quote,
+                           sheet=self.sheet, stat_id=self.stat_id, cells=self.cells)
+
+
+class CardActivity(HuskModel):
+    id: str  # A1, A2…
+    what: str = Field(..., max_length=300)
+    frequency: str | None = None
+    actors: list[str] = Field(default_factory=list)
+    volume: str | None = None
+    evidence: list[CardEvidence] = Field(default_factory=list)  # empty when the text gives none
+
+
+class CardStat(HuskModel):
+    id: str  # S1, S2…
+    sheet: str | None = None
+    metric: str  # rows | date_range | cadence | empty_rate | top_values | duplicates | sample_row
+    columns: list[str] = Field(default_factory=list)
+    value: Any = None
+    text: str = Field(..., max_length=300)
+    cells: str | None = None
+
+
+class DocumentCard(OrgScoped):
+    document_id: str
+    sha256: str
+    version: int = CARD_VERSION
+    kind: CardKind
+    title: str
+    sentence: str = Field(..., max_length=400)
+    department: str | None = None
+    doc_type: str | None = None
+    signal: float = Field(0.0, ge=0, le=1)
+    reasons: list[str] = Field(default_factory=list)
+    summary: str = Field("", max_length=1200)
+    signals: dict[str, Any] = Field(default_factory=dict)  # rep, manual, freq, dept, vol, sys (+ rows, cadence… for sheets)
+    quotes: list[CardEvidence] = Field(default_factory=list)  # key evidence (passages, or computed facts for sheets)
+    activities: list[CardActivity] = Field(default_factory=list)
+    stats: list[CardStat] = Field(default_factory=list)
+    model: str | None = None  # None: computed locally (spreadsheets)
+    created_at: datetime = Field(default_factory=utcnow)
+
+    def evidence_for(self, ref: str) -> list[CardEvidence]:
+        """Card ids → evidence: A* gives that activity's evidence, S* the computed fact."""
+        for a in self.activities:
+            if a.id == ref:
+                return list(a.evidence)
+        for s in self.stats:
+            if s.id == ref:
+                return [CardEvidence(document_id=self.document_id, stat_id=s.id, sheet=s.sheet, cells=s.cells,
+                                     quote=s.text[:300])]
+        return []
+
+    def signal_text(self) -> str:
+        """Signals as `k=v` pairs (token-cheap, not JSON)."""
+        parts = []
+        for k, v in self.signals.items():
+            if v in (None, "", [], False):
+                continue
+            if v is True:
+                v = "yes"
+            elif isinstance(v, list):
+                v = ",".join(str(x) for x in v)
+            elif isinstance(v, float):
+                v = f"{v:.2f}".rstrip("0").rstrip(".")
+            parts.append(f"{k}={v}")
+        return " ".join(parts)
+
+    def line(self, alias: str | None = None) -> str:
+        """One line per document: alias | title | sentence | signals."""
+        return f"{alias or self.document_id} | {self.title} | {self.sentence} | {self.signal_text()}"
+
+    def detail(self) -> str:
+        """L1 view: activities and computed facts with their ids."""
+        out = [self.line()]
+        if self.department:
+            out.append(f"  department: {self.department}")
+        for a in self.activities:
+            meta = ", ".join(x for x in (a.frequency, ", ".join(a.actors), a.volume) if x)
+            ev = "; ".join(f"«{e.quote}»" for e in a.evidence if e.quote)[:300]
+            out.append(f"  {a.id}: {a.what}" + (f" ({meta})" if meta else "") + (f" — evidence: {ev}" if ev else " — no evidence"))
+        for s in self.stats:
+            out.append(f"  {s.id}: {s.text}")
+        return "\n".join(out)

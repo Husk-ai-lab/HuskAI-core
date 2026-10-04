@@ -126,7 +126,7 @@ def test_default_user_language_is_english(client: TestClient) -> None:
 
 
 async def test_agents_write_in_the_users_language(services) -> None:  # type: ignore[no-untyped-def]
-    from app.core.agents.explorer.agent import ExplorerAgent
+    from app.core.agents.explorer.summarizer import Summarizer
     from app.gateways.sqlite.repositories import UserRepo
     from test.fakes import FakeProvider, default_handler
 
@@ -146,10 +146,10 @@ async def test_agents_write_in_the_users_language(services) -> None:  # type: ig
     doc = ks.add("Procedura.md", b"# Procedura\n\nOgni sera il capoturno ricopia i dati a mano.", USER, True)
     ctx = services.agent_context(ORG, USER)
     assert ctx.language == "it"
-    await ExplorerAgent(ctx).analyze("run_x", doc)
+    await Summarizer(ctx).text_card(doc)
     assert "in Italian" in seen[-1]
     seen.clear()
-    await ExplorerAgent(services.agent_context(ORG, USER, language="en")).analyze("run_y", doc)
+    await Summarizer(services.agent_context(ORG, USER, language="en")).text_card(doc)
     assert "in English" in seen[-1]
 
 

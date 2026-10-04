@@ -1,7 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, KeyRound } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
+import { AI_KEY_MIN, AiKeyField } from "../components/AiKeyField";
 import { LanguageSwitch } from "../components/LanguageSwitch";
 import { Logo } from "../components/Logo";
 import { useI18n } from "../i18n";
@@ -13,7 +14,6 @@ import { useI18n } from "../i18n";
 export function AiKeySetup({ onLogout }: { onLogout: () => void }) {
   const { t, lang } = useI18n();
   const [key, setKey] = useState("");
-  const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
@@ -50,19 +50,11 @@ export function AiKeySetup({ onLogout }: { onLogout: () => void }) {
         </div>
         <div className="field">
           <label htmlFor="ai-key">{t("aiKey.key_label")}</label>
-          <div style={{ position: "relative" }}>
-            <input id="ai-key" className="input mono" type={show ? "text" : "password"} autoComplete="off" spellCheck={false}
-                   placeholder={t("aiKey.key_placeholder")} value={key} onChange={(e) => setKey(e.target.value)} autoFocus
-                   style={{ paddingRight: 44 }} />
-            <button type="button" className="icon-btn" onClick={() => setShow(!show)} aria-label={t(show ? "aiKey.hide" : "aiKey.show")}
-                    style={{ position: "absolute", right: 5, top: 5, width: 34, height: 34, border: 0 }}>
-              {show ? <EyeOff size={15} /> : <Eye size={15} />}
-            </button>
-          </div>
+          <AiKeyField value={key} onChange={setKey} autoFocus />
         </div>
         {error && <div className="alert" style={{ marginTop: 14 }}>{error}</div>}
         <div style={{ display: "flex", gap: 10, marginTop: 20, alignItems: "center" }}>
-          <button className="btn primary lg" type="submit" disabled={busy || key.trim().length < 8}>
+          <button className="btn primary lg" type="submit" disabled={busy || key.trim().length < AI_KEY_MIN}>
             <KeyRound size={16} /> {busy ? t("aiKey.verifying") : t("aiKey.submit")}
           </button>
           <span style={{ flex: 1 }} />

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 
+from pydantic import ValidationError
+
 from app.data.models.knowledge import (
     EvidenceRef,
     MemoryKind,
@@ -97,22 +99,25 @@ class NetworkManager:
         if net is None:
             raise NoteInvalid([f"network {network_id} does not exist"])
         known_notes = {n.id for n in self.repo.notes(network_id)}
-        note = NetworkNote(
-            id=existing.id if existing else new_id("note"),
-            org_id=self.repo.org_id,
-            network_id=network_id,
-            kind=kind,
-            title=title.strip(),
-            claim=claim.strip(),
-            frequency=frequency,
-            actors=actors or [],
-            evidence=evidence or [],
-            # dangling links would make the network "broken": keep only resolvable ones
-            links=[lnk for lnk in (links or []) if lnk in known_notes and lnk != (note_id or "")],
-            hours_per_week=hours_per_week,
-            version=(existing.version + 1) if existing else 1,
-            updated_at=utcnow(),
-        )
+        try:
+            note = NetworkNote(
+                id=existing.id if existing else new_id("note"),
+                org_id=self.repo.org_id,
+                network_id=network_id,
+                kind=kind,
+                title=title.strip(),
+                claim=claim.strip(),
+                frequency=frequency,
+                actors=actors or [],
+                evidence=evidence or [],
+                # dangling links would make the network "broken": keep only resolvable ones
+                links=[lnk for lnk in (links or []) if lnk in known_notes and lnk != (note_id or "")],
+                hours_per_week=hours_per_week,
+                version=(existing.version + 1) if existing else 1,
+                updated_at=utcnow(),
+            )
+        except ValidationError as exc:  # model constraints (lengths, ranges) are note errors too, never a crash
+            raise NoteInvalid([e["msg"] for e in exc.errors()]) from None
         errors = self.validator.validate(note)
         if errors:
             raise NoteInvalid(errors)

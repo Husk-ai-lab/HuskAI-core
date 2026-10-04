@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { Doc } from "../api/types";
 import { useT } from "../i18n";
 import { ACCEPT, chunks, classify, fromDataTransfer, fromFileList, groupByFolder, type Picked } from "../lib/folderUpload";
+import { useDocQuota } from "../lib/hooks";
 import { useNotify } from "../lib/notifications";
 
 interface UploadResponse { documents: Doc[]; rejected: { filename: string; reason: string }[] }
@@ -12,6 +13,9 @@ interface UploadResponse { documents: Doc[]; rejected: { filename: string; reaso
 export function UploadModal({ onClose }: { onClose: () => void }) {
   const [files, setFiles] = useState<Picked[]>([]);
   const [skipped, setSkipped] = useState(0);
+  const [overLimit, setOverLimit] = useState(0);
+  const { data: quota } = useDocQuota();
+  const remaining = quota ? Math.max(0, quota.limit - quota.count) : Infinity;
   const [authorized, setAuthorized] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +36,10 @@ export function UploadModal({ onClose }: { onClose: () => void }) {
     const { ok, skipped: n } = classify(picked);
     setFiles((cur) => {
       const seen = new Set(cur.map((p) => p.path));
-      return [...cur, ...ok.filter((p) => !seen.has(p.path))];
+      const fresh = ok.filter((p) => !seen.has(p.path));
+      const room = Math.max(0, remaining - cur.length);  // the server enforces the cap too
+      if (fresh.length > room) setOverLimit((o) => o + fresh.length - room);
+      return [...cur, ...fresh.slice(0, room)];
     });
     setSkipped((s) => s + n);
   };
@@ -60,6 +67,7 @@ export function UploadModal({ onClose }: { onClose: () => void }) {
     await qc.invalidateQueries({ queryKey: ["documents"] });
     await qc.invalidateQueries({ queryKey: ["discovery-state"] });
     await qc.invalidateQueries({ queryKey: ["suggestions-summary"] });
+    await qc.invalidateQueries({ queryKey: ["doc-quota"] });
     setProgress(null);
     if (errors.length) setError(errors.join(" · "));
     else {
@@ -93,7 +101,7 @@ export function UploadModal({ onClose }: { onClose: () => void }) {
           <input ref={folderInput} type="file" multiple hidden data-testid="folder-input"
                  onChange={(e) => { add(fromFileList(e.target.files ?? [])); e.target.value = ""; }} />
           {files.length > 0 && !busy && (
-            <button className="btn sm ghost" onClick={() => { setFiles([]); setSkipped(0); }}>{t("upload.clear")}</button>
+            <button className="btn sm ghost" onClick={() => { setFiles([]); setSkipped(0); setOverLimit(0); }}>{t("upload.clear")}</button>
           )}
         </div>
         {(files.length > 0 || skipped > 0) && (
@@ -107,6 +115,8 @@ export function UploadModal({ onClose }: { onClose: () => void }) {
             </ul>
           </div>
         )}
+        {quota && <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>{t("upload.limit_left", { count: Math.max(0, remaining - files.length), max: quota.limit })}</div>}
+        {overLimit > 0 && quota && <div className="alert" style={{ marginBottom: 12 }}>{t("upload.limit_over", { count: overLimit, max: quota.limit })}</div>}
         <label className="check">
           <input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} />
           <span>{t("upload.authorize")}</span>

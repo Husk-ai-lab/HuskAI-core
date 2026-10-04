@@ -22,6 +22,7 @@ from app.data.models.discovery import (
 )
 from app.data.models.document import Chunk, Document, DocumentStatus, TabularProfile
 from app.data.models.knowledge import (
+    DocumentCard,
     DocumentSignal,
     Fact,
     MemoryDoc,
@@ -296,10 +297,10 @@ class DiscoveryRepo:
         with self.db.tx() as c:
             c.execute(
                 "UPDATE discovery_runs SET status = ?, current_step = ?, progress = ?, error = ?, error_key = ?, "
-                "error_params = ?, trace_id = ?, finished_at = ? WHERE org_id = ? AND id = ?",
+                "error_params = ?, trace_id = ?, traced = ?, finished_at = ? WHERE org_id = ? AND id = ?",
                 (
                     run.status.value, run.current_step.value if run.current_step else None, run.progress,
-                    run.error, run.error_key, _j(run.error_params), run.trace_id,
+                    run.error, run.error_key, _j(run.error_params), run.trace_id, int(run.traced),
                     iso(run.finished_at) if run.finished_at else None, self.org_id, run.id,
                 ),
             )
@@ -463,6 +464,10 @@ class MemoryRepo:
     def delete_network(self, network_id: str) -> None:
         with self.db.tx() as c:
             c.execute("DELETE FROM networks WHERE org_id = ? AND id = ?", (self.org_id, network_id))
+
+    def delete_note(self, note_id: str) -> None:
+        with self.db.tx() as c:
+            c.execute("DELETE FROM network_notes WHERE org_id = ? AND id = ?", (self.org_id, note_id))
 
     def save_note(self, note: NetworkNote) -> None:
         with self.db.tx() as c:
@@ -682,6 +687,42 @@ class ChatRepo:
                 (self.org_id, chat_id, ProposalStatus.pending.value),
             ).fetchall()
         return [Proposal.model_validate_json(r["data"]) for r in rows]
+
+
+# --- document cards -------------------------------------------------------------------------
+class CardRepo:
+    def __init__(self, db: Database, org_id: str):
+        self.db, self.org_id = db, org_id
+
+    def save(self, card: DocumentCard) -> DocumentCard:
+        with self.db.tx() as c:
+            c.execute(
+                "INSERT INTO document_cards(document_id, org_id, sha256, version, data, created_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(document_id) DO UPDATE SET sha256 = excluded.sha256, version = excluded.version, "
+                "data = excluded.data, created_at = excluded.created_at",
+                (card.document_id, self.org_id, card.sha256, card.version, card.model_dump_json(), iso(card.created_at)),
+            )
+        return card
+
+    def get(self, document_id: str) -> DocumentCard | None:
+        with self.db.read() as c:
+            r = c.execute("SELECT data FROM document_cards WHERE org_id = ? AND document_id = ?",
+                          (self.org_id, document_id)).fetchone()
+        return DocumentCard.model_validate_json(r["data"]) if r else None
+
+    def fresh(self, document_id: str, sha256: str, version: int) -> DocumentCard | None:
+        """The cached card if the file and the card format are unchanged."""
+        card = self.get(document_id)
+        return card if card and card.sha256 == sha256 and card.version == version else None
+
+    def list(self, document_ids: list[str] | None = None) -> list[DocumentCard]:
+        with self.db.read() as c:
+            rows = c.execute("SELECT data FROM document_cards WHERE org_id = ?", (self.org_id,)).fetchall()
+        cards = [DocumentCard.model_validate_json(r["data"]) for r in rows]
+        if document_ids is not None:
+            order = {d: i for i, d in enumerate(document_ids)}
+            cards = sorted((c for c in cards if c.document_id in order), key=lambda c: order[c.document_id])
+        return cards
 
 
 # --- suggestions ------------------------------------------------------------------------------

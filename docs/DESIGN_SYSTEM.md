@@ -28,6 +28,7 @@ Official Husk AI logo (3D purple mark), exported from the source artwork into `a
 * Top bar: mono breadcrumb path (`automazioni/…`), then the **light bulb** (Suggestions: accent dot when unread, soft pulse while Husk analyses) and the theme toggle.
 * Snackbars (`lib/notifications.tsx`): dark pill at the bottom centre, optional action ("View"), close button, 6 s, at most 3 stacked.
 * Suggestion cards: kind chip, title, body, evidence as an accent left-bordered quote with the file name, mono meta, actions on the right (primary first, "Ignora" ghost).
+* Husk Studio: `StudioAction` next to every blocking error ("View in Husk Studio" outlined accent; "Install Husk Studio" smaller, dashed, muted); a collapsible sidebar card above Settings with a status dot (green = connected); a pinned advice card on Suggestions; "Diagnose with Husk Studio" button only when Studio's MCP is up; self-heal messages are dashed bubbles labelled "Husk Studio diagnosis".
 * Chat: a Husk suggestion is a dashed-accent bubble labelled "Suggerimento di Husk" with document chips, never the user's filled bubble; the composer shows the same dashed frame while a suggestion is pre-filled; proposals from a suggestion carry a small tag.
 * Page header: eyebrow, 52 px condensed title ending with a full stop, lead paragraph.
 * Row cards: index number, icon tile, title + mono chip, description, mono meta line, status dot.

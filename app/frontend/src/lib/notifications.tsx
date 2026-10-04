@@ -1,10 +1,12 @@
 import { X } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { StudioAction } from "../components/StudioAction";
 import { useT } from "../i18n";
 
 /** Temporary snackbars (bottom centre). One provider for the whole app; `useNotify()` to show one. */
 export interface SnackAction { label: string; onClick: () => void }
-export interface SnackOptions { action?: SnackAction; icon?: ReactNode; duration?: number }
+/** `studio`: the action blocked on an error → show "Show in Husk Studio" / "Install Husk Studio". */
+export interface SnackOptions { action?: SnackAction; icon?: ReactNode; duration?: number; studio?: { traceId?: string | null; traced?: boolean } }
 interface Snack extends SnackOptions { id: number; text: string }
 
 type Notify = (text: string, options?: SnackOptions) => void;
@@ -32,6 +34,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
           <div key={s.id} className="snackbar">
             {s.icon}
             <span className="text">{s.text}</span>
+            {s.studio && <StudioAction traceId={s.studio.traceId} traced={s.studio.traced} />}
             {s.action && (
               <button className="snack-action" onClick={() => { s.action!.onClick(); close(s.id); }}>{s.action.label}</button>
             )}

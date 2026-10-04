@@ -13,8 +13,9 @@ from app.core.knowledge.service import UploadRejected
 from app.core.services import Services
 from app.core.suggestions.engine import SuggestionEngine
 from app.data.models.document import Document, DocumentSearchResult, DocumentWithUsage, TabularProfile, UsedBy
+from app.data.models.knowledge import DocumentCard
 from app.endpoints.deps import CurrentUser, current_user, get_services
-from app.gateways.sqlite.repositories import AutomationRepo
+from app.gateways.sqlite.repositories import AutomationRepo, CardRepo
 from app.i18n import t
 from app.i18n.errors import api_error, request_lang
 
@@ -67,6 +68,17 @@ async def upload(
     return UploadResult(documents=docs, rejected=rejected)
 
 
+class Quota(BaseModel):
+    count: int
+    limit: int
+
+
+@router.get("/quota", response_model=Quota)
+def quota(cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)) -> Quota:
+    ks = services.knowledge(cu.org_id)
+    return Quota(count=len(ks.docs.list()), limit=ks.max_documents)
+
+
 @router.get("/search", response_model=list[DocumentSearchResult])
 def search(q: str, cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)):
     return services.knowledge(cu.org_id).search_documents(q)
@@ -76,6 +88,7 @@ class DocumentDetail(BaseModel):
     document: DocumentWithUsage
     profiles: list[TabularProfile]
     parts: int
+    card: DocumentCard | None = None  # discovery's summary of this document, once built
 
 
 @router.get("/{document_id}", response_model=DocumentDetail)
@@ -90,6 +103,7 @@ def detail(document_id: str, cu: CurrentUser = Depends(current_user), services: 
         document=DocumentWithUsage(**doc.model_dump(), used_by=used),
         profiles=ks.docs.profiles(doc.id),
         parts=max(1, -(-len(md) // 6000)),
+        card=CardRepo(services.db, cu.org_id).get(doc.id),
     )
 
 

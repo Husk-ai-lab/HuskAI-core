@@ -8,7 +8,7 @@ import { TopBar } from "../components/TopBar";
 import { UploadModal } from "../components/UploadModal";
 import { useI18n } from "../i18n";
 import { fmtDate, fmtSize } from "../lib/format";
-import { useDocuments } from "../lib/hooks";
+import { useDocQuota, useDocuments } from "../lib/hooks";
 
 function highlighted(text: string, hl: Highlight[]): ReactNode[] {
   const out: ReactNode[] = [];
@@ -31,6 +31,7 @@ function useDebounced<T>(v: T, ms = 250) {
 export function Knowledge() {
   const [params, setParams] = useSearchParams();
   const { data: docs } = useDocuments();
+  const { data: quota } = useDocQuota();
   const [q, setQ] = useState("");
   const dq = useDebounced(q.trim());
   const [upload, setUpload] = useState(false);
@@ -56,6 +57,7 @@ export function Knowledge() {
     await api.del(`/api/v1/documents/${id}`);
     setParams({});
     qc.invalidateQueries({ queryKey: ["documents"] });
+    qc.invalidateQueries({ queryKey: ["doc-quota"] });
   };
 
   return (
@@ -84,7 +86,9 @@ export function Knowledge() {
               <div className="card search">
                 <Search size={17} className="muted" />
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("knowledge.search_placeholder")} aria-label={t("knowledge.search")} />
-                <span className="mono muted" style={{ fontSize: 11.5 }}>{t("knowledge.document_count", { count: list.length })}</span>
+                <span className="mono muted" style={{ fontSize: 11.5 }}>
+                  {quota && !searching ? t("knowledge.quota", { count: quota.count, max: quota.limit }) : t("knowledge.document_count", { count: list.length })}
+                </span>
               </div>
               <div className="kb-grid">
                 <div className="list">
@@ -119,6 +123,20 @@ export function Knowledge() {
                       <span>{fmtDate(detail.document.created_at, lang)}</span>
                     </div>
                     {detail.document.status === "failed" && <div className="alert">{t("knowledge.conversion_failed", { detail: detail.document.error ?? "" })}</div>}
+                    <div className="label">{t("knowledge.summary")}</div>
+                    {detail.card ? (
+                      <div className="doc-card">
+                        <p className="sentence">{detail.card.sentence}</p>
+                        {detail.card.activities.length > 0 && (
+                          <ul>{detail.card.activities.map((a) => (
+                            <li key={a.id}>{a.what}{a.frequency ? ` · ${a.frequency}` : ""}{a.evidence[0]?.quote ? <q>{a.evidence[0].quote}</q> : null}</li>
+                          ))}</ul>
+                        )}
+                        {detail.card.stats.length > 0 && (
+                          <ul className="mono">{detail.card.stats.filter((s) => s.metric !== "sample_row").map((s) => <li key={s.id}>{s.text}</li>)}</ul>
+                        )}
+                      </div>
+                    ) : <span className="muted">{t("knowledge.summary_none")}</span>}
                     <div className="label">{t(hit ? "knowledge.match" : "knowledge.excerpt")}</div>
                     <div className="excerpt">
                       {hit && hit.text ? highlighted(hit.text, hit.highlights) : detail.document.excerpt}

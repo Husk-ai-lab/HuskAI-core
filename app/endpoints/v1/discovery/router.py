@@ -21,7 +21,14 @@ from app.data.models.discovery import (
 )
 from app.data.models.document import DocumentStatus
 from app.data.models.knowledge import Fact, NetworkStatus
-from app.endpoints.deps import CurrentUser, current_user, get_services, llm_ready, not_in_maintenance
+from app.endpoints.deps import (
+    CurrentUser,
+    current_user,
+    decisions_ready,
+    get_services,
+    llm_ready,
+    not_in_maintenance,
+)
 from app.gateways.sqlite.repositories import DiscoveryRepo
 from app.i18n import t
 from app.i18n.errors import api_error, request_lang
@@ -71,7 +78,7 @@ def _start(services: Services, cu: CurrentUser, run_id: str) -> None:
     services.spawn(f"discovery:{cu.org_id}", orch.execute(run_id))
 
 
-@router.post("/runs", response_model=DiscoveryRunView, dependencies=[Depends(llm_ready), Depends(not_in_maintenance)])
+@router.post("/runs", response_model=DiscoveryRunView, dependencies=[Depends(llm_ready), Depends(decisions_ready), Depends(not_in_maintenance)])
 async def start(cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services),
                 lang: str = Depends(request_lang)) -> DiscoveryRunView:
     task = services.tasks.get(f"discovery:{cu.org_id}")
@@ -90,7 +97,7 @@ async def start(cu: CurrentUser = Depends(current_user), services: Services = De
 
 
 @router.post("/runs/{run_id}/resume", response_model=DiscoveryRunView,
-             dependencies=[Depends(llm_ready), Depends(not_in_maintenance)])
+             dependencies=[Depends(llm_ready), Depends(decisions_ready), Depends(not_in_maintenance)])
 async def resume(run_id: str, cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services),
                  lang: str = Depends(request_lang)):
     repo = DiscoveryRepo(services.db, cu.org_id)

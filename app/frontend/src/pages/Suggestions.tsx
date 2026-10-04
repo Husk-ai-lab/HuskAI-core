@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { MemoryView, Suggestion, SuggestionKind } from "../api/types";
 import { Markdown } from "../components/Markdown";
+import { StudioAdviceCard } from "../components/StudioCard";
 import { TopBar } from "../components/TopBar";
 import { useI18n } from "../i18n";
 import { fmtDateTime, hoursValue } from "../lib/format";
@@ -64,7 +65,7 @@ function SuggestionCard({ s, highlight }: { s: Suggestion; highlight: boolean })
       refresh();
       return r;
     } catch (e) {
-      notify((e as Error).message);
+      notify((e as Error).message, { studio: {} });
       return null;
     } finally {
       setBusy(false);
@@ -159,6 +160,7 @@ export function Suggestions() {
           <div className="eyebrow">{t("suggestions.eyebrow")}</div>
           <h1 className="title">{t("suggestions.title")}</h1>
           <p className="lead">{t("suggestions.lead")}</p>
+          <StudioAdviceCard />
           <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
             <div className="segmented">
               {FILTERS.map((f) => (

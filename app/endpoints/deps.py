@@ -61,3 +61,9 @@ async def llm_ready(cu: CurrentUser = Depends(current_user), services: Services 
     await services.llm.resolve_model(services.llm.key_for(cu.id))  # no-op once verified
     if not services.llm.model_name:
         api_error(status.HTTP_503_SERVICE_UNAVAILABLE, "errors.ai_model_unreachable")
+
+
+def decisions_ready(cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)) -> None:
+    """Discovery also needs the decision model (the Venice part of the combined key)."""
+    if not services.decisions.configured_for(cu.id):
+        api_error(status.HTTP_503_SERVICE_UNAVAILABLE, "errors.ai_key_venice_missing")

@@ -1,28 +1,13 @@
 """Context builders for the explorer's retrieval.
 
-Deep research reads in this order: the notes already written (the scratchpad), then the
-seed document, then BM25 neighbours from OTHER documents (where cross-document repetitive
-tasks are found).
+Deep dives (discovery step 4, level L2) read the card, the passages it cites, then BM25
+neighbours from OTHER documents (where cross-document repetitive tasks are found).
 """
 
 from __future__ import annotations
 
 from app.core.agents.harness.context import AgentContext
 from app.helpers.text import truncate
-
-
-def document_brief(ctx: AgentContext, document_id: str, max_chars: int = 7000) -> str:
-    doc = ctx.knowledge.docs.get(document_id)
-    if not doc:
-        return ""
-    md = ctx.knowledge.docs.markdown(document_id)
-    parts = [f"DOCUMENT {doc.id} — {doc.filename} ({doc.kind.value})"]
-    profiles = ctx.knowledge.docs.profiles(document_id)
-    for p in profiles[:6]:
-        cols = ", ".join(f"{c.name}[{c.dtype}, {p.n_rows - c.non_null} empty]" for c in p.columns[:25])
-        parts.append(f"Sheet '{p.sheet}': {p.n_rows} rows; columns: {cols}")
-    parts.append(truncate(md, max_chars))
-    return "\n".join(parts)
 
 
 def neighbours(ctx: AgentContext, document_id: str, k: int = 6) -> str:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from app import config
 from app.core.knowledge.chunker import chunk_markdown
 from app.core.knowledge.index import KnowledgeIndex, to_hit
 from app.core.knowledge.ingest import MAX_UPLOAD_BYTES, convert, kind_for, title_for
@@ -32,8 +33,10 @@ class UploadRejected(LocalizedError):
 
 
 class KnowledgeService:
-    def __init__(self, db: Database, paths: DataPaths, index: KnowledgeIndex, org_id: str):
+    def __init__(self, db: Database, paths: DataPaths, index: KnowledgeIndex, org_id: str,
+                 max_documents: int = config.MAX_DOCUMENTS_PER_ORG):
         self.db, self.paths, self.index, self.org_id = db, paths, index, org_id
+        self.max_documents = max_documents
         self.docs = DocumentRepo(db, org_id)
 
     # --- files -------------------------------------------------------------------------
@@ -60,7 +63,9 @@ class KnowledgeService:
         sha = hashlib.sha256(content).hexdigest()
         existing = self.docs.by_sha(sha)
         if existing:
-            return existing
+            return existing  # identical file: not a new document, doesn't count toward the cap
+        if len(self.docs.list()) >= self.max_documents:
+            raise UploadRejected("errors.upload_limit", max=self.max_documents)
         now = utcnow()
         doc = Document(
             id=new_id("doc"),

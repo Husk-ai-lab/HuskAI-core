@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import type { DiscoveryReport, DiscoveryRunView, MemoryView } from "../api/types";
 import { Markdown } from "../components/Markdown";
 import { RobotArm } from "../components/RobotArm";
-import { StudioLink } from "../components/StudioLink";
+import { StudioAction } from "../components/StudioAction";
 import { TopBar } from "../components/TopBar";
 import { useI18n } from "../i18n";
 import { hoursValue, pad2 } from "../lib/format";
@@ -119,6 +119,12 @@ function Report({ runId, onAgain, busy }: { runId: string; onAgain: () => void; 
         <div style={{ flex: 1 }}>
           <h1 className="title">{t("discovery.report_title")}</h1>
           <p className="lead">{t("discovery.report_lead")}</p>
+          {report.usage?.total && report.usage.total.calls > 0 && (
+            <div className="mono muted tokens-used" style={{ fontSize: 11.5, marginTop: -18, marginBottom: 22 }}
+                 title={Object.entries(report.usage.by_model ?? {}).map(([m, u]) => `${m}: ${u.calls} · ${(u.tokens_in + u.tokens_out).toLocaleString()}`).join("\n")}>
+              {t("discovery.tokens_used", { tokens: (report.usage.total.tokens_in + report.usage.total.tokens_out).toLocaleString(), calls: report.usage.total.calls })}
+            </div>
+          )}
         </div>
         <button className="btn" style={{ marginBottom: 28 }} onClick={onAgain} disabled={busy}><RefreshCw size={14} /> {t("discovery.analyze_again")}</button>
       </div>
@@ -211,7 +217,7 @@ export function Discovery() {
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <button className="btn primary lg" onClick={resume} disabled={busy}><RefreshCw size={15} /> {t("discovery.resume")}</button>
             <button className="btn lg" onClick={start} disabled={busy}>{t("discovery.restart")}</button>
-            <StudioLink url={run.studio_url} />
+            <StudioAction traceId={run.run.trace_id} traced={run.run.traced} />
           </div>
           {error && <div className="alert" style={{ marginTop: 16 }}>{error}</div>}
         </div>

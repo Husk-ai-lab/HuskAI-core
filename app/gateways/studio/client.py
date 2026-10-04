@@ -23,12 +23,19 @@ from app.helpers.time import utcnow
 log = get_logger("studio")
 
 SELF_HEAL_TOOLS = ("explain_failure", "get_trace", "list_errors", "get_run", "get_span")
+# Only read-only tools are ever offered to the Builder, whatever this Studio advertises.
+READ_ONLY_PREFIXES = ("get_", "list_", "explain_", "search_")
+
+
+def is_read_only(tool_name: str) -> bool:
+    return tool_name.startswith(READ_ONLY_PREFIXES)
 
 
 class StudioClient:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.status = StudioStatus(ui_url=settings.studio_ui_url)
+        self.status = StudioStatus(ui_url=settings.studio_ui_url, run_url_template=settings.studio_run_url_template)
+        self.tool_defs: list[dict[str, Any]] = []  # name, description, input_schema (read-only tools only)
         self._tracing_on = False
         self._lock = asyncio.Lock()
 
@@ -54,9 +61,15 @@ class StudioClient:
                             otlp = r2.status_code in (200, 400, 405, 415)
                 except (httpx.HTTPError, OSError):
                     alive = False
+            defs: list[dict[str, Any]] = []
             if alive and self._is_loopback(s.studio_mcp_url):
-                tools = await self._list_mcp_tools()
+                found = await self._list_mcp_tools()
+                defs = [d if isinstance(d, dict) else {"name": d, "description": "", "input_schema": {}} for d in found]
+                tools = [d["name"] for d in defs]
                 mcp = bool(tools)
+            self.tool_defs = [d for d in defs if is_read_only(d["name"])]
+            if otlp and not self._tracing_on:
+                self._enable_tracing()
             self.status = StudioStatus(
                 alive=alive,
                 ui_url=s.studio_ui_url if alive else None,
@@ -64,22 +77,24 @@ class StudioClient:
                 mcp=mcp,
                 mcp_tools=tools,
                 checked_at=utcnow(),
+                tracing=self._tracing_on,
+                run_url_template=s.studio_run_url_template,
             )
-            if otlp and not self._tracing_on:
-                self._enable_tracing()
             return self.status
 
-    async def _list_mcp_tools(self) -> list[str]:
+    async def _list_mcp_tools(self) -> list[dict[str, Any]]:
+        """Advertised tools with their schemas (the Builder turns read-only ones into tools)."""
         try:
             from mcp import ClientSession
             from mcp.client.streamable_http import streamablehttp_client
 
-            async def _go() -> list[str]:
+            async def _go() -> list[dict[str, Any]]:
                 async with streamablehttp_client(self.settings.studio_mcp_url) as (read, write, _):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         res = await session.list_tools()
-                        return [t.name for t in res.tools]
+                        return [{"name": t.name, "description": t.description or "",
+                                 "input_schema": t.inputSchema or {}} for t in res.tools]
 
             return await asyncio.wait_for(_go(), timeout=3)
         except Exception:
@@ -87,7 +102,7 @@ class StudioClient:
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str | None:
         """Call one Studio MCP tool if it exists; None when Studio or the tool is absent."""
-        if not self.status.mcp or name not in self.status.mcp_tools:
+        if not self.status.mcp or name not in self.status.mcp_tools or not is_read_only(name):
             return None
         try:
             from mcp import ClientSession

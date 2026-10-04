@@ -1,0 +1,121 @@
+{
+  "label": "cards",
+  "mode": "live",
+  "provider": "openrouter",
+  "models": {
+    "main": "openai/gpt-oss-120b",
+    "summary": "openai/gpt-oss-20b"
+  },
+  "documents": 30,
+  "status": "failed",
+  "completed": false,
+  "error": "invalid structured answer: Expecting ',' delimiter: line 1 column 710 (char 709)",
+  "seconds": 101.7,
+  "steps": [
+    {
+      "step": "load",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    },
+    {
+      "step": "knowledge_base",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    },
+    {
+      "step": "extract",
+      "status": "failed",
+      "seconds": 101.6,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    },
+    {
+      "step": "repetitive",
+      "status": "pending",
+      "seconds": null,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    },
+    {
+      "step": "handoffs",
+      "status": "pending",
+      "seconds": null,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    },
+    {
+      "step": "impact",
+      "status": "pending",
+      "seconds": null,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    },
+    {
+      "step": "map",
+      "status": "pending",
+      "seconds": null,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    }
+  ],
+  "by_model": {
+    "openai/gpt-oss-20b": {
+      "calls": 20,
+      "tokens_in": 27971,
+      "tokens_out": 40921
+    }
+  },
+  "total": {
+    "calls": 20,
+    "tokens_in": 27971,
+    "tokens_out": 40921
+  },
+  "cost_usd": 0.00419,
+  "quality": {
+    "planted_tasks": 9,
+    "tasks_found": [],
+    "recall": 0.0,
+    "hours_truth_total": 25.7,
+    "hours_estimated_total": 0,
+    "hours_truth_matched": 0.0,
+    "hours_estimated_matched": 0.0,
+    "opportunities": [],
+    "noise_opportunities": [],
+    "notes": 0,
+    "notes_with_evidence": 0,
+    "facts": 30,
+    "automations": 0
+  }
+}

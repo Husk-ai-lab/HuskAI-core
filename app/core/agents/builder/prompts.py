@@ -20,6 +20,9 @@ Opportunity: {title}
 Explanation: {explanation}
 Estimated hours/week: {hours}
 
+Brief from the Explorer (what to build):
+{brief}
+
 Company profile:
 {profile}
 
@@ -64,3 +67,20 @@ Cited evidence:
 {evidence}"""
 
 SUGGESTION_TAG = "[Husk suggestion — generated from a document, NOT written by the user]"
+
+SELF_HEAL_RULES = """IMPORTANT — the next request is a HUSK STUDIO SELF-HEAL request, not a user message.
+Husk generated it from a failed run; the user only chose to send it. Diagnose before changing anything:
+1. First read the failure with the Husk Studio tools (studio_explain_failure for trace {trace_id}; otherwise
+   studio_get_trace / studio_list_errors). Then look at the flow and the documents if needed.
+2. Change ONLY what the diagnosis supports, and only steps of this automation. No unrelated improvements.
+3. If the cause is outside the automation (network, AI key, quota, Husk Studio unavailable, a missing file on
+   this computer), make NO changes and explain in plain words what the user should do.
+4. In your reply, name the failing step/span and how each change fixes it.
+5. Your changes are never applied directly: they are shown to the user as a proposal to accept or discard."""
+
+SELF_HEAL_TAG = "[Husk Studio self-heal request — generated from a failed run, NOT written by the user]"
+
+FAILED_RUN = """Last test/run of this automation FAILED: trace {trace_id}; failing step: {node}; error: {error}"""
+
+STUDIO_HINT = """Diagnosis from Husk Studio for the previous failed attempt (use it to avoid the same error):
+{hint}"""

@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 from app.core.services import Services
 from app.data.models.user import Me, User, UserSettings, UserSettingsPatch
 from app.endpoints.deps import SESSION_COOKIE, CurrentUser, current_user, get_services
-from app.gateways.regolo.key_store import mask
+from app.gateways.decisions.jev import VeniceKeyRejected
+from app.gateways.regolo.key_store import mask, split_keys
 from app.gateways.regolo.provider import KeyRejected
 from app.gateways.sqlite.backup import BackupError, export_backup, import_backup
 from app.gateways.sqlite.repositories import SessionRepo, UsageRepo, UserRepo
@@ -110,6 +111,7 @@ async def logout(request: Request, services: Services = Depends(get_services)) -
         if uid:
             id_token = services.tokens.id_token(uid)
             services.tokens.delete(uid)
+            services.ai_keys.delete(uid)  # the AI key never outlives the session: entered again at next sign-in
             if services.settings.zitadel_configured:
                 try:
                     end_url = await services.zitadel.end_session_url(
@@ -178,7 +180,7 @@ async def import_all(
     UserRepo(services.db).upsert(cu.user)
     SessionRepo(services.db).create(cu.session_id, cu.user, utcnow() + timedelta(days=SESSION_DAYS))
     if own_key:
-        services.ai_keys.set(cu.id, cu.org_id, own_key.api_key, own_key.model)
+        services.ai_keys.set(cu.id, cu.org_id, own_key.api_key, own_key.model, own_key.decision_key)
     services.index.drop()
     for org in res.org_ids:
         await asyncio.to_thread(services.knowledge(org).reindex)
@@ -192,25 +194,31 @@ async def import_all(
 
 # --- AI key (simplified BYOK for the MVP: the key is provided by Husk AI) --------------------
 class AiKeyStatus(BaseModel):
-    configured: bool
+    configured: bool  # both parts present: Regolo (LLM) and Venice (decision model)
     source: str  # user | env | none
     hint: str | None = None  # last 4 characters only; the key itself is never returned
     model: str | None = None
     verified_at: str | None = None
+    decision_hint: str | None = None
+    decision_model: str | None = None
 
 
 class AiKeyIn(BaseModel):
-    api_key: str = Field(..., min_length=8, max_length=512)
+    api_key: str = Field(..., min_length=8, max_length=1024)  # combined: Regolo + Venice
 
 
 def _ai_key_status(services: Services, user_id: str) -> AiKeyStatus:
     own = services.ai_keys.get(user_id)
+    dkey = services.decisions.key_for(user_id) if hasattr(services.decisions, "key_for") else None
+    dhint = mask(dkey) if dkey else None
+    dmodel = getattr(services.decisions, "model_name", None)
     if own:
-        return AiKeyStatus(configured=True, source="user", hint=own.key_hint, model=own.model or services.llm.model_name,
-                           verified_at=own.verified_at)
+        return AiKeyStatus(configured=bool(dkey), source="user", hint=own.key_hint,
+                           model=own.model or services.llm.model_name, verified_at=own.verified_at,
+                           decision_hint=dhint, decision_model=dmodel)
     if services.settings.regolo_api_key:  # developer fallback from .env
-        return AiKeyStatus(configured=True, source="env", hint=mask(services.settings.regolo_api_key),
-                           model=services.llm.model_name)
+        return AiKeyStatus(configured=bool(dkey), source="env", hint=mask(services.settings.regolo_api_key),
+                           model=services.llm.model_name, decision_hint=dhint, decision_model=dmodel)
     return AiKeyStatus(configured=False, source="none")
 
 
@@ -222,10 +230,13 @@ def ai_key_status(cu: CurrentUser = Depends(current_user), services: Services = 
 @router.put("/ai-key", response_model=AiKeyStatus)
 async def save_ai_key(body: AiKeyIn, cu: CurrentUser = Depends(current_user),
                       services: Services = Depends(get_services)) -> AiKeyStatus:
-    """Saved ONLY after Regolo.ai accepts it. Rejected or unverifiable keys are not stored."""
-    key = body.api_key.strip()
-    if any(c.isspace() for c in key):
-        api_error(400, "errors.ai_key_spaces")
+    """ONE string: the Regolo key followed by the Venice key (`…VENICE_INFERENCE_KEY_…`), split by regex.
+    Saved ONLY after Regolo.ai AND Venice AI accept their part. Rejected or unverifiable keys are not stored."""
+    key, venice = split_keys(body.api_key)
+    if not key:
+        api_error(400, "errors.ai_key_regolo_missing")
+    if not venice:
+        api_error(400, "errors.ai_key_venice_missing")
     try:
         models = await services.llm.list_models(key)
     except KeyRejected:
@@ -234,8 +245,14 @@ async def save_ai_key(body: AiKeyIn, cu: CurrentUser = Depends(current_user),
         api_error(503, "errors.ai_key_unverifiable")
     if not models:
         api_error(400, "errors.ai_key_no_models")
+    try:
+        await services.decisions.verify(venice)
+    except VeniceKeyRejected:
+        api_error(400, "errors.ai_key_venice_rejected")
+    except Exception:
+        api_error(503, "errors.ai_key_venice_unverifiable")
     await services.llm.resolve_model(key)
-    services.ai_keys.set(cu.id, cu.org_id, key, services.llm.model_name)
+    services.ai_keys.set(cu.id, cu.org_id, key, services.llm.model_name, venice)
     log.info("ai key verified and saved user=%s", cu.id)
     return _ai_key_status(services, cu.id)
 

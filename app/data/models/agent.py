@@ -49,6 +49,12 @@ class ChatRequest(HuskModel):
     selected_node_id: str | None = None
     personality: PersonalityId | None = None
     suggestion_id: str | None = None  # sent from a Husk suggestion (pre-made prompt), see Builder rules
+    self_heal: SelfHealRequest | None = None  # sent from "Diagnose with Husk Studio" (unedited prompt only)
+
+
+class SelfHealRequest(HuskModel):
+    trace_id: str = Field(..., pattern=r"^[0-9a-f]{32}$")
+    run_id: str | None = Field(None, max_length=64)
 
 
 class ProposalStatus(StrEnum):
@@ -67,6 +73,7 @@ class Proposal(OrgScoped):
     operations: list[dict[str, Any]]
     status: ProposalStatus = ProposalStatus.pending
     suggestion_id: str | None = None
+    origin: str | None = None  # suggestion | self_heal
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -93,3 +100,5 @@ class TokenUsage(OrgScoped):
     tokens_in: int = 0
     tokens_out: int = 0
     calls: int = 0
+
+ChatRequest.model_rebuild()

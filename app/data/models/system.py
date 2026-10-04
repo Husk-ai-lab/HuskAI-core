@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app import config
 from app.data.models.common import HuskModel
 
 
@@ -44,6 +45,9 @@ class StudioStatus(HuskModel):
     mcp: bool = False
     mcp_tools: list[str] = []
     checked_at: datetime | None = None
+    tracing: bool = False  # spans are exported to Studio right now
+    install_url: str = config.HUSK_STUDIO_INSTALL_URL
+    run_url_template: str = "{base}/runs/{trace_id}"
 
 
 class SystemStatus(HuskModel):

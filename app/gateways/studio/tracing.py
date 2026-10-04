@@ -48,6 +48,11 @@ def enable_otlp(endpoint: str) -> None:
     _exporting = True
 
 
+def exporting() -> bool:
+    """True once spans are exported to a local Studio (a trace id then exists there too)."""
+    return _exporting
+
+
 def tracer() -> trace.Tracer:
     return trace.get_tracer("husk")
 

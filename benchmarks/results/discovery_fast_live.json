@@ -1,0 +1,461 @@
+{
+  "label": "One-shot LLM",
+  "mode": "live",
+  "provider": "openrouter",
+  "models": {
+    "main": "openai/gpt-oss-120b",
+    "summary": "openai/gpt-oss-20b"
+  },
+  "documents": 30,
+  "status": "completed",
+  "completed": true,
+  "stage": null,
+  "error": null,
+  "seconds": 547.9,
+  "steps": [
+    {
+      "step": "load",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      },
+      "timings": null
+    },
+    {
+      "step": "knowledge_base",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      },
+      "timings": null
+    },
+    {
+      "step": "extract",
+      "status": "done",
+      "seconds": 52.8,
+      "by_model": {
+        "openai/gpt-oss-20b": {
+          "calls": 19,
+          "tokens_in": 20212,
+          "tokens_out": 10055
+        }
+      },
+      "total": {
+        "calls": 19,
+        "tokens_in": 20212,
+        "tokens_out": 10055
+      },
+      "timings": {
+        "doc_adc91d637fb549f5": {
+          "file": "Registro_non_conformita_2026.xlsx",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.02,
+          "fresh": true
+        },
+        "doc_b75cf493066a4be5": {
+          "file": "Piano_controllo_RF-34.csv",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.0,
+          "fresh": true
+        },
+        "doc_2ccbac1cb6b04236": {
+          "file": "Rapporti_turno_settembre_2026.csv",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.01,
+          "fresh": true
+        },
+        "doc_c3df82a49c6d45b4": {
+          "file": "Piano_produzione_settimana_41.xlsx",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.01,
+          "fresh": true
+        },
+        "doc_ec92652cd2a845c4": {
+          "file": "Regolamento_mensa.txt",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 5.97,
+          "fresh": true
+        },
+        "doc_787a6cd2e7d144e0": {
+          "file": "Fermi_macchina_2026.csv",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.01,
+          "fresh": true
+        },
+        "doc_d96b200ccf34487d": {
+          "file": "Calendario_manutenzioni_preventive.xlsx",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.01,
+          "fresh": true
+        },
+        "doc_9900a64105294c3c": {
+          "file": "Movimenti_magazzino_settembre_2026.csv",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.01,
+          "fresh": true
+        },
+        "doc_0faf45a3330546dc": {
+          "file": "Magazzino_Gestio7_export.sqlite",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.01,
+          "fresh": true
+        },
+        "doc_e53bb9fb21a0455d": {
+          "file": "PQ-08_Gestione_non_conformita.docx",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 11.59,
+          "fresh": true
+        },
+        "doc_ff01b383e49a422c": {
+          "file": "IO-12_Attrezzaggio_plurimandrino.docx",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 11.62,
+          "fresh": true
+        },
+        "doc_ee06728cf24c4cc7": {
+          "file": "Istruzioni_rapporto_turno.txt",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 14.3,
+          "fresh": true
+        },
+        "doc_8c317e234524403c": {
+          "file": "Registro_offerte_2026.csv",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.02,
+          "fresh": true
+        },
+        "doc_bb222f0263ca47dc": {
+          "file": "Manuale_qualita_estratto_rev9.pdf",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 14.46,
+          "fresh": true
+        },
+        "doc_02013e69d07c4fc2": {
+          "file": "Listino_prezzi_2026.xlsx",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.02,
+          "fresh": true
+        },
+        "doc_b94ad1d707f9454f": {
+          "file": "Benvenuto_nuovi_assunti.docx",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 16.32,
+          "fresh": true
+        },
+        "doc_59b50c674dab4aa5": {
+          "file": "Scadenzario_clienti_2026.csv",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.02,
+          "fresh": true
+        },
+        "doc_7080c988f1144f60": {
+          "file": "Presentazione_aziendale_2026.pptx",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 4.79,
+          "fresh": true
+        },
+        "doc_8f3bf028cb4a4be8": {
+          "file": "Organigramma.md",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 10.48,
+          "fresh": true
+        },
+        "doc_5a1404293b7f4568": {
+          "file": "Fatture_fornitori_2026_Q3.xlsx",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.03,
+          "fresh": true
+        },
+        "doc_afa1b580dca44594": {
+          "file": "Procedura_ciclo_passivo.docx",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 8.16,
+          "fresh": true
+        },
+        "doc_03b11ede1bc34315": {
+          "file": "Ordini_acquisto_2026_Q3.xlsx",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.05,
+          "fresh": true
+        },
+        "doc_64b468e9083a4e57": {
+          "file": "Anagrafica_fornitori.csv",
+          "kind": "table",
+          "model": null,
+          "seconds": 0.0,
+          "fresh": true
+        },
+        "doc_729c117cf99e412f": {
+          "file": "Verbale_audit_interno_2026-09.docx",
+          "kind": "text",
+          "model": "fallback",
+          "seconds": 25.01,
+          "fresh": true,
+          "late_refreshed": true
+        },
+        "doc_755c5c15773140c5": {
+          "file": "Politica_ambientale_2026.pdf",
+          "kind": "text",
+          "model": "fallback",
+          "seconds": 25.01,
+          "fresh": true,
+          "late_refreshed": true
+        },
+        "doc_ff4019b6025c4d95": {
+          "file": "Procedura_riordino_materie_prime.docx",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 4.22,
+          "fresh": true
+        },
+        "doc_48fbbfd87e0e4720": {
+          "file": "Modelli_email_solleciti.txt",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 9.23,
+          "fresh": true
+        },
+        "doc_4e67112d3f164520": {
+          "file": "Verbale_riunione_direzione_2026-09-21.docx",
+          "kind": "text",
+          "model": "fallback",
+          "seconds": 25.01,
+          "fresh": true,
+          "late_refreshed": true
+        },
+        "doc_b60d76f570d54bb0": {
+          "file": "Profilo_aziendale.md",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 20.58,
+          "fresh": true
+        },
+        "doc_7b4276eab20c48a9": {
+          "file": "Email_ritardi_consegna_settembre.txt",
+          "kind": "text",
+          "model": "openai/gpt-oss-20b",
+          "seconds": 18.28,
+          "fresh": true
+        }
+      }
+    },
+    {
+      "step": "repetitive",
+      "status": "done",
+      "seconds": 170.3,
+      "by_model": {
+        "openai/gpt-oss-120b": {
+          "calls": 1,
+          "tokens_in": 3187,
+          "tokens_out": 1610
+        }
+      },
+      "total": {
+        "calls": 1,
+        "tokens_in": 3187,
+        "tokens_out": 1610
+      },
+      "timings": null
+    },
+    {
+      "step": "handoffs",
+      "status": "done",
+      "seconds": 25.3,
+      "by_model": {
+        "openai/gpt-oss-120b": {
+          "calls": 1,
+          "tokens_in": 1112,
+          "tokens_out": 1620
+        }
+      },
+      "total": {
+        "calls": 1,
+        "tokens_in": 1112,
+        "tokens_out": 1620
+      },
+      "timings": null
+    },
+    {
+      "step": "impact",
+      "status": "done",
+      "seconds": 69.7,
+      "by_model": {
+        "openai/gpt-oss-120b": {
+          "calls": 3,
+          "tokens_in": 6838,
+          "tokens_out": 5917
+        }
+      },
+      "total": {
+        "calls": 3,
+        "tokens_in": 6838,
+        "tokens_out": 5917
+      },
+      "timings": null
+    },
+    {
+      "step": "map",
+      "status": "done",
+      "seconds": 229.7,
+      "by_model": {
+        "openai/gpt-oss-120b": {
+          "calls": 22,
+          "tokens_in": 55385,
+          "tokens_out": 41170
+        }
+      },
+      "total": {
+        "calls": 22,
+        "tokens_in": 55385,
+        "tokens_out": 41170
+      },
+      "timings": null
+    }
+  ],
+  "by_model": {
+    "openai/gpt-oss-20b": {
+      "calls": 20,
+      "tokens_in": 20849,
+      "tokens_out": 10559
+    },
+    "openai/gpt-oss-120b": {
+      "calls": 27,
+      "tokens_in": 66522,
+      "tokens_out": 50317
+    }
+  },
+  "total": {
+    "calls": 47,
+    "tokens_in": 87371,
+    "tokens_out": 60876
+  },
+  "cost_usd": 0.01234,
+  "quality": {
+    "planted_tasks": 9,
+    "tasks_found": [
+      "T1",
+      "T2",
+      "T3",
+      "T4",
+      "T5",
+      "T6",
+      "T7",
+      "T8"
+    ],
+    "recall": 0.89,
+    "hours_truth_total": 25.7,
+    "hours_estimated_total": 39.5,
+    "hours_truth_matched": 24.9,
+    "hours_estimated_matched": 44.5,
+    "opportunities": [
+      {
+        "title": "Automazione Gestione Movimenti di Magazzino e Riordino Settimanale",
+        "hours": 9.0,
+        "sources": [
+          "Movimenti_magazzino_settembre_2026.csv",
+          "Magazzino_Gestio7_export.sqlite",
+          "Scadenzario_clienti_2026.csv",
+          "Procedura_riordino_materie_prime.docx"
+        ]
+      },
+      {
+        "title": "Automazione del ciclo passivo fatture fornitori (N4)",
+        "hours": 7.0,
+        "sources": [
+          "Procedura_ciclo_passivo.docx",
+          "Fatture_fornitori_2026_Q3.xlsx",
+          "Anagrafica_fornitori.csv"
+        ]
+      },
+      {
+        "title": "Gestione solleciti e incassi clienti",
+        "hours": 6.0,
+        "sources": [
+          "Modelli_email_solleciti.txt",
+          "Email_ritardi_consegna_settembre.txt",
+          "Scadenzario_clienti_2026.csv"
+        ]
+      },
+      {
+        "title": "Gestione non conformità e 8D",
+        "hours": 5.0,
+        "sources": [
+          "Registro_non_conformita_2026.xlsx",
+          "PQ-08_Gestione_non_conformita.docx",
+          "Fermi_macchina_2026.csv"
+        ]
+      },
+      {
+        "title": "Automazione per la Raccolta, Trascrizione e Aggiornamento dei Rapporti di Turno",
+        "hours": 5.0,
+        "sources": [
+          "Rapporti_turno_settembre_2026.csv",
+          "Istruzioni_rapporto_turno.txt",
+          "IO-12_Attrezzaggio_plurimandrino.docx"
+        ]
+      },
+      {
+        "title": "Pianificazione e monitoraggio produzione settimanale",
+        "hours": 3.5,
+        "sources": [
+          "Piano_produzione_settimana_41.xlsx",
+          "Calendario_manutenzioni_preventive.xlsx",
+          "Verbale_riunione_direzione_2026-09-21.docx"
+        ]
+      },
+      {
+        "title": "Gestione offerte commerciali",
+        "hours": 3.0,
+        "sources": [
+          "Registro_offerte_2026.csv",
+          "Listino_prezzi_2026.xlsx",
+          "Ordini_acquisto_2026_Q3.xlsx"
+        ]
+      },
+      {
+        "title": "Procedura attrezzaggio plurimandrino",
+        "hours": 1.0,
+        "sources": [
+          "IO-12_Attrezzaggio_plurimandrino.docx"
+        ]
+      }
+    ],
+    "noise_opportunities": [
+      "Procedura attrezzaggio plurimandrino"
+    ],
+    "notes": 28,
+    "notes_with_evidence": 28,
+    "facts": 30,
+    "automations": 8
+  }
+}

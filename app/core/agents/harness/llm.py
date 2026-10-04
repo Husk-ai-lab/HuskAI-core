@@ -20,18 +20,27 @@ class StructuredOutputError(RuntimeError):
 
 
 async def structured(
-    model: BaseChatModel, schema: type[T], messages: list[BaseMessage], config: dict | None = None
+    model: BaseChatModel, schema: type[T], messages: list[BaseMessage], config: dict | None = None,
+    prefer: str = "function_calling",
 ) -> T:
-    """Ask for a typed answer. Tries native structured output, then strict JSON prompting."""
-    try:
-        runnable = model.with_structured_output(schema, method="function_calling")
-        result = await runnable.ainvoke(messages, config=config)
-        if isinstance(result, schema):
-            return result
-        if isinstance(result, dict):
-            return schema.model_validate(result)
-    except Exception as exc:
-        log.debug("native structured output failed (%s), falling back to JSON", type(exc).__name__)
+    """Ask for a typed answer: the preferred native mode, then the other one (OpenAI-compatible APIs), then strict
+    JSON prompting with up to two corrections."""
+    # `prefer="json_schema"` only for small, flat schemas (Explorer, Planner, summaries): on large nested schemas
+    # (automation drafts) gpt-oss can run away in strict JSON mode until the length limit. Measured, see docs.
+    if type(model).__name__ == "ChatOpenAI":
+        methods = ["json_schema", "function_calling"] if prefer == "json_schema" else ["function_calling", "json_schema"]
+    else:
+        methods = ["function_calling"]
+    for method in methods:
+        try:
+            runnable = model.with_structured_output(schema, method=method)
+            result = await runnable.ainvoke(messages, config=config)
+            if isinstance(result, schema):
+                return result
+            if isinstance(result, dict):
+                return schema.model_validate(result)
+        except Exception as exc:
+            log.debug("structured output via %s failed (%s)", method, type(exc).__name__)
     schema_json = schema.model_json_schema()
     fallback = list(messages) + [
         HumanMessage(

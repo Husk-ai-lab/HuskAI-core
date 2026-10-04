@@ -32,8 +32,9 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 | `app/data/models/` | Pydantic domain models (documents, knowledge memory, discovery, automation graphs, agents) |
 | `app/data/neon/` | Pydantic models 1:1 with the plan's `husk-core` schema (11 tables) |
 | `app/gateways/` | Everything that talks to the outside: `sqlite/` (repositories, migrations, backup), `zitadel/`, `regolo/`, `neon/`, `studio/` |
-| `app/core/knowledge/` | Conversion, chunking, BM25s index, search + highlights, `tabular/` data-scientist tools, `memory/` (the harness) |
-| `app/core/agents/` | `harness/` (LangChain tool loop, structured outputs, personalities, tools, self-heal), `explorer/` (discovery), `builder/` (automation editing), `orchestrator.py` (Husk Op) |
+| `app/core/knowledge/` | Conversion, chunking, BM25s index, search + highlights, `tabular/` data-scientist tools and `facts.py` (spreadsheet cards), `memory/` (the harness) |
+| `app/core/agents/` | `harness/` (LangChain tool loop, structured outputs, personalities, tools, self-heal, Studio MCP tools), `explorer/` (discovery: `summarizer.py` cards, confidence-driven exploration — [agents/EXPLORER_AGENT.md](agents/EXPLORER_AGENT.md)), `builder/` (automation editing), `orchestrator.py` (Husk Op) |
+| `app/core/metering.py` | Token metering per step and per model, budget guard |
 | `app/core/automations/` | Graph executor, decision provider, local actions, scheduler, use cases |
 | `app/core/suggestions/` | Debounced suggestion jobs after uploads/deletes (see [HARNESS.md](HARNESS.md#suggestions-after-documents-change)) |
 | `app/helpers/` | Settings, OS data paths, PII-scrubbing logging, ids, time, text |

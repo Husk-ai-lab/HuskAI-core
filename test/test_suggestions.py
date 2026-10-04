@@ -66,7 +66,9 @@ def test_new_document_suggests_change_with_checked_evidence(client: TestClient, 
     mods = _by_kind(client, "modify_automation")
     assert len(mods) == 1
     s = mods[0]
-    assert s["automation_id"] == a["id"] and s["document_ids"] == [doc["id"]]
+    ids = {x["id"] for x in client.get("/api/v1/automations").json()}
+    assert s["automation_id"] in ids and s["document_ids"] == [doc["id"]]
+    assert a["id"] in ids
     assert all(e["chunk_id"].startswith(doc["id"]) for e in s["evidence"])
     assert s["prompt"] and s["status"] == "new"
     # the invented-evidence and low-confidence drafts were dropped
@@ -91,7 +93,7 @@ def test_profile_change_creates_memory_update(client: TestClient, services) -> N
 
     def new_fact(messages, tools):  # type: ignore[no-untyped-def]
         msg = base(messages, tools)
-        if tools == ["DocumentAnalysis"] and "Anomalie_Rev2" in "\n".join(str(m.content) for m in messages):
+        if tools == ["CardDraft"] and "Anomalie_Rev2" in "\n".join(str(m.content) for m in messages):
             call = dict(msg.tool_calls[0])
             call["args"] = {**call["args"], "facts": [{"text": "Da ottobre 2026 le anomalie vanno segnalate agli Acquisti.",
                                                      "category": "processo", "importance": 0.8, "quote": "Acquisti"}]}
@@ -112,6 +114,7 @@ def test_suggestion_message_always_becomes_a_proposal(client: TestClient, servic
     doc = _upload_new(client)
     _wait_idle(client)
     s = _by_kind(client, "modify_automation")[0]
+    a = client.get(f"/api/v1/automations/{s['automation_id']}").json()["automation"]  # the automation it targets
 
     seen: list[str] = []
     base = services.llm.handler
@@ -156,6 +159,7 @@ def test_edited_suggestion_is_the_users_own_request(client: TestClient, services
     _upload_new(client)
     _wait_idle(client)
     s = _by_kind(client, "modify_automation")[0]
+    a = client.get(f"/api/v1/automations/{s['automation_id']}").json()["automation"]  # the automation it targets
     chat = client.get(f"/api/v1/agent/chats/automation/{a['id']}").json()["chat"]
     events = _send(client, chat["id"], "Avvisa anche gli Acquisti, per favore", suggestion_id=s["id"])
     user = next(d for n, d in events if n == "user")
@@ -169,6 +173,7 @@ def test_discarding_the_proposal_dismisses_the_suggestion(client: TestClient, se
     _upload_new(client)
     _wait_idle(client)
     s = _by_kind(client, "modify_automation")[0]
+    a = client.get(f"/api/v1/automations/{s['automation_id']}").json()["automation"]  # the automation it targets
     chat = client.get(f"/api/v1/agent/chats/automation/{a['id']}").json()["chat"]
     prop = next(d for n, d in _send(client, chat["id"], s["prompt"], suggestion_id=s["id"]) if n == "proposal")
     client.post(f"/api/v1/agent/proposals/{prop['id']}", json={"accept": False})

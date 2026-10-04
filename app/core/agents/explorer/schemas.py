@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.data.models.knowledge import FactCategory, NoteKind
+from app.data.models.knowledge import FactCategory
 
 
 class FactDraft(BaseModel):
@@ -12,54 +12,6 @@ class FactDraft(BaseModel):
     category: FactCategory = FactCategory.process
     importance: float = Field(0.5, ge=0, le=1)
     quote: str | None = Field(None, max_length=300)
-
-
-class DocumentAnalysis(BaseModel):
-    doc_type: str = Field(..., description="procedure, bill of materials, order, production report, work instruction, other")
-    department: str = Field(..., description="main department, in the user's language (e.g. Quality, Engineering, Production, Purchasing, Warehouse)")
-    summary: str = Field(..., max_length=600)
-    automation_signal: float = Field(..., ge=0, le=1, description="how much repetitive, automatable work the document describes")
-    signal_reasons: list[str] = Field(default_factory=list, max_length=6)
-    facts: list[FactDraft] = Field(default_factory=list, max_length=6)
-
-
-class NoteDraft(BaseModel):
-    title: str
-    claim: str = Field(..., description="complete information, full sentences, with numbers when present")
-    kind: NoteKind = NoteKind.task
-    frequency: str | None = None
-    actors: list[str] = Field(default_factory=list)
-    hours_per_week: float | None = Field(None, ge=0, le=80)
-    evidence_document_id: str
-    evidence_chunk_id: str | None = None
-    quote: str | None = Field(None, max_length=300)
-    related_titles: list[str] = Field(default_factory=list)
-
-
-class NotesExtraction(BaseModel):
-    notes: list[NoteDraft] = Field(default_factory=list, max_length=10)
-
-
-class LinkDraft(BaseModel):
-    note_a: str
-    note_b: str
-    reason: str = ""
-
-
-class HandoffMap(BaseModel):
-    links: list[LinkDraft] = Field(default_factory=list, max_length=40)
-
-
-class OpportunityDraft(BaseModel):
-    title: str = Field(..., max_length=80, description="short automation name, in the user's language")
-    explanation: str = Field(..., max_length=500, description="plain explanation: what is done by hand today and what changes")
-    note_ids: list[str] = Field(..., min_length=1)
-    hours_per_week: float = Field(..., ge=0, le=80)
-    priority: str = Field("media", description="alta (high), media (medium) or bassa (low)")
-
-
-class OpportunityMap(BaseModel):
-    opportunities: list[OpportunityDraft] = Field(default_factory=list, max_length=8)
 
 
 class SuggestionEvidenceDraft(BaseModel):
@@ -81,3 +33,28 @@ class SuggestionDraft(BaseModel):
 
 class SuggestionMap(BaseModel):
     suggestions: list[SuggestionDraft] = Field(default_factory=list, max_length=4)
+
+
+# --- document cards + confidence-driven exploration ------------------------------------------------
+
+
+class SignalsDraft(BaseModel):
+    rep: float = Field(..., ge=0, le=1, description="how much repetitive, automatable work it shows (0-1)")
+    manual: bool = Field(False, description="work done by hand: re-typing, manual checks, copy-paste, emails")
+    freq: str | None = Field(None, max_length=40, description="how often, e.g. daily, weekly, every order")
+    dept: list[str] = Field(default_factory=list, max_length=4, description="departments/roles involved")
+    vol: str | None = Field(None, max_length=60, description="volumes if stated, e.g. 26 invoices/week")
+    sys: list[str] = Field(default_factory=list, max_length=4, description="systems/files used: ERP, Excel, email…")
+
+
+class QuoteDraft(BaseModel):
+    chunk_id: str = Field(..., description="passage id of THIS document, exactly as listed")
+    quote: str = Field(..., max_length=200, description="short verbatim quote")
+
+
+class CardDraft(BaseModel):
+    sentence: str = Field(..., max_length=250, description="ONE sentence: what the document is + the repetitive work it shows")
+    summary: str = Field(..., max_length=600, description="what is done, by whom, how often, with which data; manual steps")
+    signals: SignalsDraft
+    quotes: list[QuoteDraft] = Field(default_factory=list, max_length=3, description="key evidence, only if present")
+    facts: list[FactDraft] = Field(default_factory=list, max_length=3)

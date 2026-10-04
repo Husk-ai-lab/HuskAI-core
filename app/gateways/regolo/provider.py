@@ -17,6 +17,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.outputs import LLMResult
 
+from app.core.metering import MeterCallback, usage_from
 from app.gateways.regolo.key_store import UserAiKeyStore
 from app.gateways.sqlite.repositories import UsageRepo
 from app.helpers.logging import get_logger
@@ -54,6 +55,14 @@ def pick_model(wanted: str | None, available: list[str]) -> str | None:
     return available[0]
 
 
+def match_model(wanted: str | None, available: list[str]) -> str | None:
+    """Exact-ish match only (no fallback): used for optional models such as the summary model."""
+    if not wanted:
+        return None
+    w = _norm(wanted)
+    return next((m for m in available if _norm(m) == w or _norm(m.split("/")[-1]) == w), None)
+
+
 class LLMNotConfigured(LocalizedError):
     status = 503
 
@@ -68,7 +77,12 @@ class UsageContext:
 class LLMProvider(Protocol):
     model_name: str | None
 
-    def chat_model(self, usage: UsageContext | None = None, temperature: float | None = None) -> BaseChatModel: ...
+    def chat_model(self, usage: UsageContext | None = None, temperature: float | None = None,
+                   model: str | None = None, reasoning: str | None = None, max_tokens: int | None = None,
+                   timeout: float | None = None, max_retries: int | None = None) -> BaseChatModel: ...
+
+    @property
+    def summary_model_name(self) -> str | None: ...
 
     @property
     def configured(self) -> bool: ...
@@ -87,18 +101,9 @@ class _UsageCallback(BaseCallbackHandler):
         self.repo, self.usage, self.model = repo, usage, model
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        tin = tout = 0
-        meta = response.llm_output or {}
-        tu = meta.get("token_usage") or {}
-        tin, tout = tu.get("prompt_tokens", 0), tu.get("completion_tokens", 0)
-        if not (tin or tout):
-            for gens in response.generations:
-                for g in gens:
-                    um = getattr(getattr(g, "message", None), "usage_metadata", None) or {}
-                    tin += um.get("input_tokens", 0)
-                    tout += um.get("output_tokens", 0)
+        tin, tout = usage_from(response)
         try:
-            self.repo.add(self.usage.org_id, self.usage.user_id, self.model, int(tin), int(tout))
+            self.repo.add(self.usage.org_id, self.usage.user_id, self.model, tin, tout)
         except Exception as exc:  # usage must never break a call
             log.warning("usage record failed: %s", type(exc).__name__)
 
@@ -114,6 +119,7 @@ class RegoloProvider:
         self.keys = keys
         self.model_name: str | None = settings.regolo_model
         self._model_verified = False
+        self._available: list[str] = []  # model ids offered for the verified key
 
     @property
     def configured(self) -> bool:
@@ -155,6 +161,7 @@ class RegoloProvider:
         except Exception as exc:
             log.warning("could not list Regolo models: %s", type(exc).__name__)
             return self.model_name
+        self._available = ids
         picked = pick_model(self.settings.regolo_model, ids)
         if picked:
             if picked != self.model_name:
@@ -162,7 +169,15 @@ class RegoloProvider:
             self.model_name, self._model_verified = picked, True
         return self.model_name
 
-    def chat_model(self, usage: UsageContext | None = None, temperature: float | None = None) -> BaseChatModel:
+    @property
+    def summary_model_name(self) -> str | None:
+        """The smaller model for document summaries, if this key offers it; else None (use the main one)."""
+        return match_model(self.settings.summary_model, self._available)
+
+    def chat_model(self, usage: UsageContext | None = None, temperature: float | None = None,
+                   model: str | None = None, reasoning: str | None = None, max_tokens: int | None = None,
+                   timeout: float | None = None, max_retries: int | None = None) -> BaseChatModel:
+        """`reasoning`: low | medium (never high) — sent the way the endpoint expects it."""
         api_key = self.key_for(usage.user_id if usage else None)
         if not api_key:
             raise LLMNotConfigured("errors.ai_key_missing")
@@ -170,14 +185,28 @@ class RegoloProvider:
             raise LLMNotConfigured("errors.ai_model_unreachable")
         from langchain_openai import ChatOpenAI
 
-        callbacks = [_UsageCallback(self.usage_repo, usage, self.model_name)] if usage else []
+        model_id = model or self.model_name
+        callbacks: list[BaseCallbackHandler] = [MeterCallback(model_id)]
+        if usage:
+            callbacks.append(_UsageCallback(self.usage_repo, usage, model_id))
+        extra: dict[str, Any] = {}
+        if "openrouter.ai" in self.settings.regolo_base_url:  # benchmarks only: the product calls Regolo
+            body: dict[str, Any] = {"provider": {"sort": "throughput"}}  # route to the fastest backends
+            if reasoning:
+                body["reasoning"] = {"effort": reasoning}
+            extra["extra_body"] = body
+        elif reasoning:  # Regolo / vLLM (OpenAI-compatible)
+            extra["reasoning_effort"] = reasoning
+        if max_tokens:
+            extra["max_tokens"] = max_tokens
         return ChatOpenAI(
-            model=self.model_name,
+            model=model_id,
             api_key=api_key,
             base_url=self.settings.regolo_base_url,
             temperature=self.settings.llm_temperature if temperature is None else temperature,
-            timeout=self.settings.llm_timeout_s,
-            max_retries=4,  # unstable factory networks: retry with back-off
+            timeout=timeout or self.settings.llm_timeout_s,
+            max_retries=4 if max_retries is None else max_retries,  # unstable factory networks: retry with back-off
             callbacks=callbacks,
             stream_usage=True,
+            **extra,
         )

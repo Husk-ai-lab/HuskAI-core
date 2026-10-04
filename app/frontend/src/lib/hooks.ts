@@ -21,3 +21,5 @@ export const useSuggestionSummary = () =>
   useQuery({ queryKey: ["suggestions-summary"], queryFn: () => api.get<SuggestionSummary>("/api/v1/suggestions/summary"), refetchInterval: 60_000 });
 export const useSuggestions = (filter: string) =>
   useQuery({ queryKey: ["suggestions", filter], queryFn: () => api.get<Suggestion[]>(`/api/v1/suggestions?status=${filter}`) });
+export const useDocQuota = () =>
+  useQuery({ queryKey: ["doc-quota"], queryFn: () => api.get<{ count: number; limit: number }>("/api/v1/documents/quota") });

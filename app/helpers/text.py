@@ -42,3 +42,22 @@ def extract_json(text: str) -> object:
 def slug(text: str, max_len: int = 48) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return s[:max_len] or "item"
+
+
+def norm_ws(text: str) -> str:
+    """Lower-case, whitespace-collapsed text (for verbatim-quote checks)."""
+    return re.sub(r"\s+", " ", text or "").strip().lower()
+
+
+def snippet(text: str, limit: int = 240) -> str:
+    """Readable fallback quote: drop markdown table rules and pipes (spreadsheets become tables)."""
+    lines = [ln for ln in (text or "").splitlines() if not re.fullmatch(r"[\s|:\-]*", ln)]
+    joined = " | ".join(lines) if "|" in text else " ".join(lines)
+    flat = re.sub(r"(\s*\|\s*)+", " · ", joined).strip(" ·")
+    return truncate(re.sub(r"\s+", " ", flat), limit)
+
+
+def quote_or_snippet(quote: str | None, passage: str, limit: int = 240) -> str:
+    """Keep the quote if it is really in the passage, else a snippet of the passage."""
+    q = norm_ws(quote or "")
+    return quote if q and q in norm_ws(passage) else snippet(passage, limit)  # type: ignore[return-value]

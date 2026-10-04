@@ -11,6 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.core.agents.builder.agent import BuilderAgent
 from app.core.agents.harness.personalities import all_personalities, get_personality
+from app.core.agents.harness.self_heal import with_self_heal
 from app.core.automations.service import AutomationService
 from app.core.services import Services
 from app.core.suggestions.engine import SuggestionEngine
@@ -28,7 +29,7 @@ from app.data.models.system import StudioStatus
 from app.data.models.user import PersonalityId
 from app.endpoints.deps import CurrentUser, current_user, get_services, llm_ready, not_in_maintenance
 from app.gateways.sqlite.repositories import AutomationRepo, ChatRepo, SuggestionRepo
-from app.gateways.studio.tracing import span
+from app.gateways.studio.tracing import exporting, span
 from app.helpers.ids import new_id
 from app.helpers.logging import get_logger
 from app.i18n import t
@@ -131,6 +132,9 @@ async def send_message(chat_id: str, body: ChatRequest, cu: CurrentUser = Depend
         meta |= {"suggestion_id": suggestion.id, "document_ids": suggestion.document_ids}
         if from_suggestion:
             meta["origin"] = "suggestion"
+    self_heal = body.self_heal if not from_suggestion else None
+    if self_heal is not None:
+        meta |= {"origin": "self_heal", "trace_id": self_heal.trace_id}
     user_msg = chats.add_message(ChatMessage(
         id=new_id("msg"), chat_id=chat.id, role=MessageRole.user, content=body.content, meta=meta,
     ))
@@ -149,19 +153,32 @@ async def send_message(chat_id: str, body: ChatRequest, cu: CurrentUser = Depend
         ctx = services.agent_context(cu.org_id, cu.id)
         agent = BuilderAgent(ctx)
         personality = get_personality(chat.personality, ctx.language)
+        trace: dict = {}
         try:
             await emit("status", {"key": "chat.status_working"})
             with span("husk.builder.chat", **{"husk.automation_id": automation.id}) as trace_id:
-                outcome = await agent.chat(automation, history, body.content, chat.personality,
-                                           body.selected_node_id, emit, suggestion_evidence=evidence)
+                trace.update(id=trace_id, traced=exporting())
+
+                async def attempt(hint: str | None):  # type: ignore[no-untyped-def]
+                    if hint:
+                        await emit("status", {"key": "chat.status_self_heal"})
+                    return await agent.chat(automation, history, body.content, chat.personality,
+                                            body.selected_node_id, emit, suggestion_evidence=evidence,
+                                            self_heal_trace=self_heal.trace_id if self_heal else None, studio_hint=hint)
+
+                # a crashed request is retried once with Husk Studio's diagnosis (only when its MCP is up)
+                outcome = await with_self_heal(attempt, services.studio, lambda: trace.get("id"))
             meta: dict = {"personality": personality.id.value}
             if from_suggestion:
                 meta["reply_to_suggestion"] = True
+            if self_heal is not None:
+                meta["reply_to_self_heal"] = True
             if outcome.operations:
                 if outcome.proposal_required:
                     prop = Proposal(id=new_id("prop"), org_id=cu.org_id, chat_id=chat.id, automation_id=automation.id,
                                     summary=outcome.reply[:500], operations=outcome.operations,
-                                    suggestion_id=suggestion.id if suggestion else None)
+                                    suggestion_id=suggestion.id if from_suggestion and suggestion else None,
+                                    origin="suggestion" if from_suggestion else "self_heal" if self_heal else None)
                     chats.save_proposal(prop)
                     meta["proposal_id"] = prop.id
                     await emit("proposal", prop.model_dump(mode="json"))
@@ -177,10 +194,10 @@ async def send_message(chat_id: str, body: ChatRequest, cu: CurrentUser = Depend
             await emit("message", msg.model_dump(mode="json"))
         except Exception as exc:
             log.warning("builder chat failed: %s", type(exc).__name__)
-            studio_url = services.studio.run_url(locals().get("trace_id"))
             text = t("chat.error_reply", ctx.language, detail=str(exc)[:200])
-            msg = chats.add_message(ChatMessage(id=new_id("msg"), chat_id=chat.id, role=MessageRole.assistant,
-                                                content=text, meta={"error": True, "studio_url": studio_url}))
+            # the trace id, not a link: the UI decides "Show in Husk Studio" vs "Install Husk Studio"
+            msg = chats.add_message(ChatMessage(id=new_id("msg"), chat_id=chat.id, role=MessageRole.assistant, content=text,
+                                                meta={"error": True, "trace_id": trace.get("id"), "traced": trace.get("traced", False)}))
             await emit("error", msg.model_dump(mode="json"))
         finally:
             await queue.put(None)

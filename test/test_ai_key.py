@@ -19,6 +19,7 @@ from test.conftest import ORG, USER, login
 
 MODELS = "https://api.regolo.ai/v1/models"
 KEY = "rg-test-key-1234567890-abcd"
+COMBINED = KEY + "VENICE_INFERENCE_KEY_testpart_0001"  # one string after login: Regolo key + Venice key
 OK = httpx.Response(200, json={"data": [{"id": "Llama-3.3-70B-Instruct"}]})
 
 
@@ -42,7 +43,7 @@ def test_no_key_blocks_ai_but_not_local_work(real) -> None:  # type: ignore[no-u
 def test_valid_key_is_verified_then_saved_in_user_data(real) -> None:  # type: ignore[no-untyped-def]
     c, services = real
     route = respx.get(MODELS).mock(return_value=OK)
-    r = c.put("/api/v1/user/ai-key", json={"api_key": f"  {KEY}  "})
+    r = c.put("/api/v1/user/ai-key", json={"api_key": f"  {COMBINED}  "})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["configured"] and body["source"] == "user" and body["hint"] == "••••abcd" and body["verified_at"]
@@ -58,7 +59,7 @@ def test_valid_key_is_verified_then_saved_in_user_data(real) -> None:  # type: i
 def test_rejected_key_is_not_saved(real) -> None:  # type: ignore[no-untyped-def]
     c, services = real
     respx.get(MODELS).mock(return_value=httpx.Response(401))
-    r = c.put("/api/v1/user/ai-key", json={"api_key": KEY})
+    r = c.put("/api/v1/user/ai-key", json={"api_key": COMBINED})
     assert r.status_code == 400 and r.json()["code"] == "errors.ai_key_rejected"
     assert services.llm.keys.get(USER) is None
     assert c.get("/api/v1/user/ai-key").json()["configured"] is False  # the prompt stays
@@ -68,7 +69,7 @@ def test_rejected_key_is_not_saved(real) -> None:  # type: ignore[no-untyped-def
 def test_unverifiable_key_is_not_saved(real) -> None:  # type: ignore[no-untyped-def]
     c, services = real
     respx.get(MODELS).mock(side_effect=httpx.ConnectError("offline"))
-    r = c.put("/api/v1/user/ai-key", json={"api_key": KEY})
+    r = c.put("/api/v1/user/ai-key", json={"api_key": COMBINED})
     assert r.status_code == 503 and r.json()["code"] == "errors.ai_key_unverifiable"
     assert services.llm.keys.get(USER) is None
 
@@ -77,7 +78,7 @@ def test_unverifiable_key_is_not_saved(real) -> None:  # type: ignore[no-untyped
 def test_key_without_models_is_refused(real) -> None:  # type: ignore[no-untyped-def]
     c, services = real
     respx.get(MODELS).mock(return_value=httpx.Response(200, json={"data": []}))
-    assert c.put("/api/v1/user/ai-key", json={"api_key": KEY}).status_code == 400
+    assert c.put("/api/v1/user/ai-key", json={"api_key": COMBINED}).status_code == 400
     assert services.llm.keys.get(USER) is None
 
 
@@ -106,7 +107,7 @@ def test_keys_are_per_user(settings, services) -> None:  # type: ignore[no-untyp
 def test_key_never_exported_but_survives_import(real) -> None:  # type: ignore[no-untyped-def]
     c, services = real
     respx.get(MODELS).mock(return_value=OK)
-    c.put("/api/v1/user/ai-key", json={"api_key": KEY})
+    c.put("/api/v1/user/ai-key", json={"api_key": COMBINED})
     data = c.get("/api/v1/user/data/export").content
     assert KEY.encode() not in data  # stripped from the backup file
     r = c.post("/api/v1/user/data/import", files={"file": ("b.db", data)}, data={"confirm": "true"})
@@ -125,3 +126,25 @@ def test_env_key_is_a_developer_fallback(settings, services) -> None:  # type: i
 
 def test_mask() -> None:
     assert mask("abcdefgh1234") == "••••1234" and mask("abc") == "••••"
+
+
+def test_sign_out_removes_only_the_signing_out_users_key(real) -> None:  # type: ignore[no-untyped-def]
+    c, services = real
+    services.ai_keys.set(USER, ORG, KEY, "m")
+    login(services, "user_other", ORG)
+    services.ai_keys.set("user_other", ORG, "key-of-another-user-0001", "m")
+    assert c.post("/api/v1/user/auth/logout").status_code == 200
+    assert services.ai_keys.get(USER) is None  # entered again at the next sign-in
+    assert services.ai_keys.get("user_other") is not None
+    c.cookies.set(SESSION_COOKIE, login(services))
+    assert c.get("/api/v1/user/ai-key").json()["configured"] is False
+
+
+@respx.mock
+def test_changing_to_a_rejected_key_keeps_the_old_one(real) -> None:  # type: ignore[no-untyped-def]
+    c, services = real
+    services.ai_keys.set(USER, ORG, KEY, "m")
+    respx.get(MODELS).mock(return_value=httpx.Response(401))
+    r = c.put("/api/v1/user/ai-key", json={"api_key": "rg-wrong-key-000000"})
+    assert r.status_code == 400
+    assert services.ai_keys.get(USER).api_key == KEY

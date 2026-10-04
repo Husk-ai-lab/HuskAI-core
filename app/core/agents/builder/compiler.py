@@ -58,6 +58,27 @@ def compile_draft(draft: FlowDraft) -> AutomationGraph:
         else:
             nodes.append(ActionNode(id=nid, label=s.label, subtitle=s.subtitle, action=s.action or ActionType.log,
                                     target=s.target, template=s.template))
-        src = ref_to_id.get(s.after, "trigger")
-        edges.append(edge(src, nid, s.branch))
+        edges.append(edge(ref_to_id[s.after] if s.after in ref_to_id else "trigger", nid, s.branch))
     return layout(AutomationGraph(nodes=nodes, edges=edges))
+
+
+def repair_order(draft: FlowDraft) -> FlowDraft:
+    """Deterministic loop repair: every step must follow the trigger or an EARLIER step. Anything else (itself,
+    a later step, an unknown ref) is re-attached to the previous step. List order is kept, so no loop is possible."""
+    seen = ["trigger"]
+    by_ref = {s.ref: s for s in draft.steps}
+    for s in draft.steps:
+        if s.after not in seen:
+            parent = by_ref.get(seen[-1])
+            s.after = seen[-1]
+            if parent is None:
+                s.branch = None
+            elif parent.kind == "condition":
+                s.branch = s.branch if s.branch in ("vero", "falso") else "vero"
+            elif parent.kind == "decision":
+                opts = parent.options or ["vero", "falso"]
+                s.branch = s.branch if s.branch in opts else opts[0]
+            else:
+                s.branch = None
+        seen.append(s.ref)
+    return draft

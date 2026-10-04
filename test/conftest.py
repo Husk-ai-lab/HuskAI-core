@@ -16,7 +16,7 @@ from app.gateways.sqlite.repositories import SessionRepo, UserRepo
 from app.helpers.settings import Settings
 from app.helpers.time import utcnow
 from app.main import build_services, create_app
-from test.fakes import FakeProvider
+from test.fakes import FakeDecisionModel, FakeProvider
 
 ORG = "org_test"
 USER = "user_test"
@@ -33,6 +33,7 @@ def settings(tmp_path: Path) -> Settings:
 def services(settings: Settings) -> Services:
     svc = build_services(settings)
     svc.llm = FakeProvider()  # type: ignore[assignment]
+    svc.decisions = FakeDecisionModel()  # type: ignore[assignment]
     return svc
 
 

@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import type { Automation, AutomationRun, AutomationView, Suggestion } from "../api/types";
 import { ChatPanel } from "../components/ChatPanel";
 import { FlowCanvas } from "../components/FlowCanvas";
-import { StudioLink } from "../components/StudioLink";
+import { DiagnoseButton, StudioAction } from "../components/StudioAction";
 import { TopActions } from "../components/TopBar";
 import { useI18n } from "../i18n";
 import { fmtDateTime } from "../lib/format";
@@ -21,6 +21,7 @@ export function AutomationEditor() {
   const [menu, setMenu] = useState(false);
   const [run, setRun] = useState<{ run: AutomationRun; studio_url?: string | null } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [selfHeal, setSelfHeal] = useState<{ traceId: string; prompt: string; nonce: number } | null>(null);
   const { t, lang } = useI18n();
   const notify = useNotify();
   const [params, setParams] = useSearchParams();
@@ -35,6 +36,7 @@ export function AutomationEditor() {
   const a = data.automation;
 
   const flash = (text: string) => notify(text, { duration: 2600 });
+  const fail = (e: unknown) => notify((e as Error).message, { studio: {} });
   const usableSuggestion = suggestion && suggestion.automation_id === a.id && (suggestion.status === "new" || suggestion.status === "seen")
     ? suggestion : null;
   const clearSuggestion = () => { params.delete("suggestion"); setParams(params, { replace: true }); };
@@ -48,12 +50,12 @@ export function AutomationEditor() {
     try {
       refresh(await api.post<Automation>(`/api/v1/automations/${id}/status`, { status }));
       flash(t(status === "attiva" ? "editor.toast_active" : status === "caricata" ? "editor.toast_loaded" : "editor.toast_deactivated"));
-    } catch (e) { flash((e as Error).message); }
+    } catch (e) { fail(e); }
   };
   const test = async () => {
     setTesting(true);
     try { setRun(await api.post(`/api/v1/automations/${id}/test`)); }
-    catch (e) { flash((e as Error).message); }
+    catch (e) { fail(e); }
     finally { setTesting(false); }
   };
   const undo = async () => {
@@ -113,11 +115,21 @@ export function AutomationEditor() {
                   </li>
                 ))}
               </ul>
-              <div style={{ marginTop: 12 }}><StudioLink url={run.studio_url} /></div>
+              {run.run.status === "failed" && (
+                <div className="err-actions" style={{ marginTop: 12 }}>
+                  <StudioAction traceId={run.run.trace_id} traced={run.run.traced} />
+                  {run.run.trace_id && (
+                    <DiagnoseButton onClick={() => setSelfHeal({
+                      traceId: run.run.trace_id!, nonce: Date.now(),
+                      prompt: t("chat.self_heal_prompt", { step: run.run.log.find((l) => l.status === "error")?.label ?? "-" }),
+                    })} />
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
-        <ChatPanel automation={a} selectedNodeId={selected} suggestion={usableSuggestion} onSuggestionDone={clearSuggestion} />
+        <ChatPanel automation={a} selectedNodeId={selected} suggestion={usableSuggestion} onSuggestionDone={clearSuggestion} selfHeal={selfHeal} />
       </div>
     </>
   );

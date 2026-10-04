@@ -23,7 +23,7 @@ from app.data.models.automation import (
     NodeRunLog,
     RunTrigger,
 )
-from app.gateways.studio.tracing import span
+from app.gateways.studio.tracing import exporting, span
 from app.helpers.ids import new_id
 from app.helpers.logging import get_logger
 from app.helpers.text import truncate
@@ -84,7 +84,7 @@ class AutomationExecutor:
         out_dir = (self.out_root / "prova" / run.id) if test_mode else self.out_root / automation.id
         state: dict[str, Any] = {"trigger": payload or {}, "_stamp": utcnow().strftime("%Y%m%d-%H%M%S")}
         with span("husk.automation.run", **{"husk.automation_id": automation.id, "husk.trigger": trigger.value}) as tid:
-            run.trace_id = tid
+            run.trace_id, run.traced = tid, exporting()
             try:
                 await self._walk(automation, state, run, out_dir, test_mode)
                 run.status = AutomationRunStatus.success
@@ -183,4 +183,4 @@ class AutomationExecutor:
             human(f"TASK: {node.instructions}\n\nSTATE:\n{self._state_text(state)}\n\nDATA:\n" +
                   ("\n\n".join(context_parts) or "(no linked data)")),
         ]
-        return await structured(self.ctx.model(), AgentNodeOutput, msgs, config={"run_name": f"automation.agent.{node.id}"})
+        return await structured(self.ctx.model(role="runtime"), AgentNodeOutput, msgs, config={"run_name": f"automation.agent.{node.id}"})

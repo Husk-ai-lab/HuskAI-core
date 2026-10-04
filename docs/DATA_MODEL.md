@@ -10,10 +10,11 @@ Defined in `app/gateways/sqlite/migrations/001_init.sql`; Pydantic models in `ap
 | --- | --- | --- |
 | `orgs`, `users`, `user_settings` | Local identity (email/name stay local), theme, personality, **language** (`en` default, `it`) | Until account removed |
 | `sessions` | SHA-256 of UI session cookies | 30 days, never exported |
-| `user_ai_keys` | Per-user Regolo.ai key (provided by Husk AI), saved only after Regolo accepted it; `key_hint` (last 4), model, `verified_at` | Until replaced/removed; **never exported**, never returned by the API |
+| `user_ai_keys` | Per-user keys from ONE combined string (provided by Husk AI): Regolo.ai key (`api_key`, `key_hint`) and Venice AI key for the decision model (`decision_key`, `decision_hint`, migration 007); saved only after both providers accepted them; model, `verified_at` | **Until sign-out** (or replaced/removed in Settings); **never exported**, never returned by the API |
 | `documents`, `chunks`, `tabular_profiles` | Uploaded documents (metadata + converted markdown), chunks, sheet structure; `source_path` = relative path for folder uploads (migration 004, display only) | Until deleted by the user |
-| `discovery_runs`, `discovery_steps`, `agent_checkpoints` | Runs, per-step outputs, resume state; run errors stored as `error_key` + `error_params` (migration 003) so the UI shows them in any language | Kept as history |
-| `doc_signals`, `opportunities` | Signal ranking and the opportunity map per run | Kept with the run |
+| `discovery_runs`, `discovery_steps`, `agent_checkpoints` | Runs, per-step outputs (incl. `usage`: calls and tokens per model), resume state; run errors stored as `error_key` + `error_params` (migration 003); `traced` (migration 005) | Kept as history |
+| `doc_signals`, `opportunities` | Signal ranking and the opportunity map per run; opportunities carry the Explorer's `builder_prompt` | Kept with the run |
+| `document_cards` | The summary of each document discovery explores first (migration 006): sentence, activities with evidence or computed spreadsheet facts; reused while `sha256` + card version are unchanged | Deleted with the document |
 | `facts`, `fact_history` | Company profile (≤30) and replaced facts | Until reset |
 | `networks`, `network_notes`, `memory_docs` | Knowledge networks, notes, versioned markdown artefacts | Kept networks live with their automation |
 | `automations`, `automation_versions`, `automation_runs` | Graphs, every version, local run history | Until deleted |

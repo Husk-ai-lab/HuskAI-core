@@ -1,0 +1,137 @@
+{
+  "label": "baseline",
+  "mode": "offline (estimated)",
+  "provider": "scripted",
+  "models": {
+    "main": "gpt-oss-120b (simulated)",
+    "summary": "gpt-oss-20b (simulated)"
+  },
+  "documents": 30,
+  "status": "completed",
+  "completed": true,
+  "error": null,
+  "seconds": 0.5,
+  "steps": [
+    {
+      "step": "load",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    },
+    {
+      "step": "knowledge_base",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {},
+      "total": {
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    },
+    {
+      "step": "extract",
+      "status": "done",
+      "seconds": 0.3,
+      "by_model": {
+        "gpt-oss-120b (simulated)": {
+          "calls": 30,
+          "tokens_in": 41373,
+          "tokens_out": 3657
+        }
+      },
+      "total": {
+        "calls": 30,
+        "tokens_in": 41373,
+        "tokens_out": 3657
+      }
+    },
+    {
+      "step": "repetitive",
+      "status": "done",
+      "seconds": 0.1,
+      "by_model": {
+        "gpt-oss-120b (simulated)": {
+          "calls": 16,
+          "tokens_in": 58897,
+          "tokens_out": 892
+        }
+      },
+      "total": {
+        "calls": 16,
+        "tokens_in": 58897,
+        "tokens_out": 892
+      }
+    },
+    {
+      "step": "handoffs",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {
+        "gpt-oss-120b (simulated)": {
+          "calls": 1,
+          "tokens_in": 446,
+          "tokens_out": 95
+        }
+      },
+      "total": {
+        "calls": 1,
+        "tokens_in": 446,
+        "tokens_out": 95
+      }
+    },
+    {
+      "step": "impact",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {
+        "gpt-oss-120b (simulated)": {
+          "calls": 1,
+          "tokens_in": 904,
+          "tokens_out": 140
+        }
+      },
+      "total": {
+        "calls": 1,
+        "tokens_in": 904,
+        "tokens_out": 140
+      }
+    },
+    {
+      "step": "map",
+      "status": "done",
+      "seconds": 0.0,
+      "by_model": {
+        "gpt-oss-120b (simulated)": {
+          "calls": 4,
+          "tokens_in": 3812,
+          "tokens_out": 606
+        }
+      },
+      "total": {
+        "calls": 4,
+        "tokens_in": 3812,
+        "tokens_out": 606
+      }
+    }
+  ],
+  "by_model": {
+    "gpt-oss-120b (simulated)": {
+      "calls": 52,
+      "tokens_in": 105432,
+      "tokens_out": 5390
+    }
+  },
+  "total": {
+    "calls": 52,
+    "tokens_in": 105432,
+    "tokens_out": 5390
+  },
+  "cost_usd": 0.00482,
+  "quality": null
+}

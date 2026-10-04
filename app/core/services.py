@@ -11,6 +11,7 @@ from app.core.knowledge.index import KnowledgeIndex
 from app.core.knowledge.memory import HarnessMemory
 from app.core.knowledge.service import KnowledgeService
 from app.core.system.maintenance import MaintenanceMonitor
+from app.gateways.decisions.base import DecisionModel
 from app.gateways.neon import NeonGateway
 from app.gateways.regolo.key_store import UserAiKeyStore
 from app.gateways.regolo.provider import LLMProvider
@@ -29,6 +30,7 @@ class Services:
     db: Database
     index: KnowledgeIndex
     llm: LLMProvider
+    decisions: DecisionModel
     ai_keys: UserAiKeyStore
     neon: NeonGateway
     studio: StudioClient
@@ -51,7 +53,7 @@ class Services:
         return self._suggestions
 
     def knowledge(self, org_id: str) -> KnowledgeService:
-        return KnowledgeService(self.db, self.paths, self.index, org_id)
+        return KnowledgeService(self.db, self.paths, self.index, org_id, max_documents=self.settings.max_documents)
 
     def memory(self, org_id: str) -> HarnessMemory:
         return HarnessMemory(self.db, org_id, max_facts=self.settings.max_company_facts)
@@ -69,6 +71,7 @@ class Services:
             knowledge=self.knowledge(org_id),
             memory=self.memory(org_id),
             llm=self.llm,
+            decisions=self.decisions,
             studio=self.studio,
             language=language,
         )

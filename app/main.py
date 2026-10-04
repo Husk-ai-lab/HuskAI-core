@@ -28,6 +28,7 @@ from app.endpoints.v1.documents.router import router as documents_router
 from app.endpoints.v1.suggestions.router import router as suggestions_router
 from app.endpoints.v1.user.router import callback_router
 from app.endpoints.v1.user.router import router as user_router
+from app.gateways.decisions.jev import JevClient
 from app.gateways.neon import build_neon
 from app.gateways.regolo.key_store import UserAiKeyStore
 from app.gateways.regolo.provider import RegoloProvider
@@ -58,6 +59,7 @@ def build_services(settings: Settings) -> Services:
         db=db,
         index=KnowledgeIndex(paths.bm25),
         llm=RegoloProvider(settings, UsageRepo(db), ai_keys),
+        decisions=JevClient(settings, ai_keys, UsageRepo(db)),
         ai_keys=ai_keys,
         neon=neon,
         studio=StudioClient(settings),

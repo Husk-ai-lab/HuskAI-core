@@ -13,6 +13,7 @@ benchmarks/results/*.png
 benchmarks/datasets/generated/
 benchmarks/fictional_company/
 .DS_Store
+docs/DISCOVERY_EFFICIENCY.md
 
 # Private Neon setup (tables + Data API permissions), applied by hand
 sql/neon_husk_core_setup.sql

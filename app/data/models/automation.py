@@ -257,6 +257,7 @@ class AutomationRun(OrgScoped):
     log: list[NodeRunLog] = Field(default_factory=list)
     error: str | None = None
     trace_id: str | None = None
+    traced: bool = False  # the trace was exported to a running Husk Studio
     tokens: int = 0
     started_at: datetime = Field(default_factory=utcnow)
     ended_at: datetime | None = None

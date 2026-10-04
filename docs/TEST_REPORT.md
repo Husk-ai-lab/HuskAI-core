@@ -1,18 +1,19 @@
 # Test report — Husk MVP
 
-Oct 3, 2026 · @Marco · run after adding Suggestions (light bulb page, snackbars, suggestion messages) and folder upload
+Oct 4, 2026 · @Marco · run after moving discovery to document cards + a decision model (Venice Jev), the 50-document cap and token metering
 
 ## Summary
 
 | Suite | Result | Time |
 | --- | --- | --- |
-| Backend — pytest (`test/`) | **101 passed**, 0 failed, 0 skipped (warnings as errors) | 11.7 s |
-| Backend line coverage (`app/`) | **88%** (5,949 statements, 737 missed); `core/suggestions/engine.py` 90%, `endpoints/v1/suggestions` 80%, `app/i18n` 95–100% | — |
+| Backend — pytest (`test/`) | **144 passed**, 0 failed, 0 skipped (warnings as errors) | 17.0 s |
+| Backend line coverage (`app/`) | **89%** (6,849 statements, 784 missed); `gateways/decisions` 80–100% | — |
 | Frontend — TypeScript (`tsc -b`) | clean | — |
-| Frontend — vitest | **49 passed** (incl. the per-file no-hard-coded-text guard over every `.tsx` file) | 0.8 s |
+| Frontend — vitest | **60 passed** (incl. the per-file no-hard-coded-text guard over every `.tsx` file) | 0.8 s |
 | Lint — ruff (`app test benchmarks installer.py`) | all checks passed | — |
 | Benchmarks — offline (`python -m benchmarks.report`) | all ran; results below | ~10 s |
 | Desktop binary — `installer.py --smoke` | built (187 MB, one-folder), `/health` → `{"status":"ok"}` | ~3 min |
+| Discovery benchmark — live (`bench_discovery_tokens --live`, Valsorda 30 docs) | completed in **29 s**, 75 calls, $0.014; 6/9 planted tasks; see `benchmarks/results/DISCOVERY_BENCHMARK.md` | 29 s |
 | Visual check | Prototype screens light + dark; AI-key screen, maintenance modal/banner; login, key screen, discovery report and editor in **English and Italian**; light bulb with dot, Suggestions page (EN light, IT dark), editor opened from a suggestion, suggestion bubble + proposal (headless Chrome, scripted model, Valsorda documents uploaded as a folder) | manual |
 
 **Not covered by automated tests:** the real Regolo.ai model, the real ZITADEL login, the real Neon Data API, a running Husk Studio, and Windows/Linux builds. See [What is not tested](#what-is-not-tested).
@@ -38,6 +39,26 @@ No test needs network access or secrets. External services are replaced by:
 Each test gets its own temporary data folder and SQLite database.
 
 ## What each test file verifies
+
+New in this round: `test_jev_discovery.py` (Jev request shape vs the documented API, batching, 402, metering; combined key split and two-part verification; candidate-pair cap; edge gating and components; assessment and BM25 scoping to flagged documents; full discovery on the decision model; Venice key required), `test_document_cards.py` (cards, cache, fallback, concurrency), `test_fast_discovery.py` (loop repair, failed draft skipped, reasoning policy low/medium/never high, summary deadline), `test_token_metering.py` (per step/model, budget guard, offline benchmark), `test_upload_limit.py` (50-document cap).
+
+
+### `test_studio_chat.py` — Husk Studio in the product (10)
+| Test | Verifies |
+| --- | --- |
+| `test_status_exposes_install_url_and_template` | `/system/status` carries the install URL and the run-link template |
+| `test_only_read_only_tools_are_kept` | Advertised write tools (`delete_run`, `clear_all`) are never offered and `call_tool` refuses them |
+| `test_studio_tools_wrap_mcp_calls` | Read-only MCP tools become `studio_*` LangChain tools calling Studio; none without Studio; failure keywords (en/it) |
+| `test_studio_tools_are_bound_only_for_failures` | Normal edits don't bind Studio tools; questions about errors do; never without MCP |
+| `test_last_failed_run_is_in_context` | The last failed run (trace, step, error) is in the Builder context and binds Studio tools |
+| `test_self_heal_message_reads_studio_and_proposes` | A self-heal message calls `explain_failure` with the trace, carries `SELF_HEAL_RULES` + tag, and ends in a proposal even with the auto-applying personality |
+| `test_self_heal_requires_a_real_trace_id` | A non-hex trace id → 422 |
+| `test_crashed_chat_request_retries_with_studio_diagnosis` | A crashed chat request retries once with Studio's diagnosis in the prompt |
+| `test_chat_errors_store_the_trace_not_a_link` | Chat errors store `trace_id` + `traced`, no link |
+| `test_runs_record_whether_they_were_traced` | Test runs record `traced` |
+
+Frontend `studio.test.tsx` (9): run/home/install targets; StudioAction install vs run link; Diagnose only with MCP; sidebar card (install/open, collapsible, never hidden); Suggestions advice card hidden for 30 days; chat self-heal pre-fill and bubble; error bubbles always offer a Studio action.
+
 
 ### `test_suggestions.py` — suggestions after document changes (14)
 | Test | Verifies |

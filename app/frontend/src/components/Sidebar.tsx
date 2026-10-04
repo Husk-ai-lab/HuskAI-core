@@ -5,6 +5,7 @@ import { useAutomations, useDiscoveryState, useDocuments, useMe } from "../lib/h
 import { automationIcon, docIcon } from "./icons";
 import { useT } from "../i18n";
 import { Brand } from "./Logo";
+import { StudioCard } from "./StudioCard";
 
 function Group({ to, icon, label, children, active }: { to: string; icon: React.ReactNode; label: string; children: React.ReactNode; active: boolean }) {
   const [open, setOpen] = useState(true);
@@ -67,6 +68,7 @@ export function Sidebar() {
         <span className={`badge-state ${state}`}>{t(`enums.discovery_state.${state}`)}</span>
       </NavLink>
       <div className="sidebar-foot">
+        <StudioCard />
         <NavLink to="/impostazioni" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
           <SlidersHorizontal size={17} />
           <span className="grow">{t("nav.settings")}</span>
