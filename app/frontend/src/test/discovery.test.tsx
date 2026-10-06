@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import type { DiscoveryRunView, StepView } from "../api/types";
 import { I18nProvider } from "../i18n";
-import { STAGES, stageOf, stageViews } from "../lib/discoveryStages";
-import { Running } from "../pages/Discovery";
+import { STAGES, keepNewer, stageOf, stageViews } from "../lib/discoveryStages";
+import { Discovery, Running } from "../pages/Discovery";
 
 const ORDER = ["load", "knowledge_base", "extract", "repetitive", "handoffs", "impact", "map"];
 const steps = (status: (i: number) => StepView["status"]): StepView[] =>
@@ -46,4 +48,54 @@ describe("discovery stages", () => {
     mount(v, { key: "discovery.event.linking", step: "repetitive", params: { count: 30 } });
     expect(screen.queryByText(/Linking/)).toBeNull();
   });
+});
+
+
+describe("the reading counter only goes up", () => {
+  const ev = (done: number, total = 30, step = "extract") => ({ key: "discovery.event.reading", step, params: { done, total } });
+
+  it("keepNewer ignores a lower count of the same step, but not a new total or another step", () => {
+    expect(keepNewer(ev(17), ev(5))).toEqual(ev(17));
+    expect(keepNewer(ev(17), ev(18))).toEqual(ev(18));
+    expect(keepNewer(ev(17), ev(5, 12))).toEqual(ev(5, 12));  // a different total is a different attempt
+    expect(keepNewer(ev(17), ev(2, 30, "repetitive"))).toEqual(ev(2, 30, "repetitive"));
+    expect(keepNewer(null, ev(1))).toEqual(ev(1));
+  });
+});
+
+describe("Discovery event stream", () => {
+  class FakeES {
+    static all: FakeES[] = [];
+    listeners: Record<string, ((e: MessageEvent) => void)[]> = {};
+    closed = false;
+    constructor(public url: string) { FakeES.all.push(this); }
+    addEventListener(n: string, fn: (e: MessageEvent) => void) { (this.listeners[n] ??= []).push(fn); }
+    close() { this.closed = true; }
+    emit(name: string, data: object) { this.listeners[name]?.forEach((f) => f({ data: JSON.stringify(data) } as MessageEvent)); }
+  }
+
+  beforeEach(() => {
+    FakeES.all = [];
+    vi.stubGlobal("EventSource", FakeES);
+    const state = {
+      state: "in_corso", documents_ready: 30,
+      run: { run: { id: "r1", status: "running", progress: 0.3, document_ids: [] }, steps: steps((i) => (i < 2 ? "done" : i === 2 ? "running" : "pending")) },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(String(url).includes("discovery/state") ? state : {}), { status: 200 })));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("opens ONE stream per run however many events arrive, and a replayed lower count never shows", async () => {
+    render(<I18nProvider><QueryClientProvider client={new QueryClient()}><MemoryRouter><Discovery /></MemoryRouter></QueryClientProvider></I18nProvider>);
+    await screen.findByText(/Step 2 of 4/);
+    const es = FakeES.all[0];
+    await act(async () => { for (const d of [0, 1, 17, 30]) es.emit("progress", { ...ev(d), type: "progress" }); });
+    expect(await screen.findByText("Reading the documents · 30 of 30")).toBeTruthy();
+    await act(async () => { es.emit("progress", { ...ev(17), type: "progress" }); });  // a reconnect replays old events
+    expect(screen.getByText("Reading the documents · 30 of 30")).toBeTruthy();
+    expect(FakeES.all).toHaveLength(1);  // renders did not tear the stream down and re-open it
+    expect(es.closed).toBe(false);
+  });
+
+  function ev(done: number) { return { key: "discovery.event.reading", step: "extract", params: { done, total: 30 } }; }
 });

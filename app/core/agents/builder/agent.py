@@ -37,7 +37,7 @@ Emit = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
 class AddNodeArgs(BaseModel):
-    node: dict[str, Any] = Field(..., description="full node without id/position, e.g. {'kind':'action','label':'Notify Purchasing','action':'email','target':'Purchasing'}")
+    node: dict[str, Any] = Field(..., description="full node without id/position, e.g. {'kind':'notification','label':'Notify Purchasing','channel':'gmail','recipients':'acquisti@azienda.it','subject':'…','template':'…'}")
     after: str | None = Field(None, description="id of the node to connect it after")
     branch: str | None = Field(None, description="branch of the edge from 'after' (vero/falso or a decision option)")
     before: str | None = Field(None, description="to insert it between 'after' and this node")

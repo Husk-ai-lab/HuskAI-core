@@ -31,6 +31,12 @@ Rules:
 - Be conservative: no suggestion is better than a weak one. Confidence below 0.6 means do not suggest.
 - At most 4 suggestions. An empty list is a valid answer."""
 
+# The document's own language for what describes the document; the user's language for what enters the company
+# profile and the linking tags (they are shown to, and matched across, the user's documents).
+LANGUAGES = """Language: write `sentence` and `summary` in {document_language} (the language of the document).
+Write the company facts, and the free text of the signals (freq, dept, sys), in {user_language}.
+Quotes stay verbatim, exactly as in the document."""
+
 SUMMARIZE = """Summarise this company document for other agents (they will NOT read the document).
 
 {passages}

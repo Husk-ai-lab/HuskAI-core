@@ -27,3 +27,12 @@ export function stageViews(steps: StepView[]): StageView[] {
     return { id: st.id, steps: st.steps, status };
   });
 }
+
+/** The line under the progress bar is one counter ("n of total"). Events can arrive again or late (a reconnect, a
+ *  retry): an event of the same step and kind with a LOWER count and the same total never replaces a higher one. */
+export function keepNewer<E extends { step?: string | null; key?: string | null; params?: Record<string, string | number> }>(prev: E | null, next: E): E {
+  if (!prev || prev.step !== next.step || prev.key !== next.key) return next;
+  const a = Number(prev.params?.done), b = Number(next.params?.done);
+  if (Number.isFinite(a) && Number.isFinite(b) && prev.params?.total === next.params?.total && b < a) return prev;
+  return next;
+}

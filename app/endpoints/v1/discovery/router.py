@@ -127,7 +127,11 @@ async def events(run_id: str, request: Request, cu: CurrentUser = Depends(curren
     if not DiscoveryRepo(services.db, cu.org_id).get(run_id):
         api_error(404, "errors.discovery_not_found")
     channel = f"discovery:{run_id}"
-    q = services.events.subscribe(channel)
+    try:  # a reconnecting browser says where it was: replay only what it missed
+        after = int(request.headers.get("last-event-id") or 0)
+    except ValueError:
+        after = 0
+    q = services.events.subscribe(channel, after=after)
 
     async def gen():  # type: ignore[no-untyped-def]
         try:
@@ -139,7 +143,7 @@ async def events(run_id: str, request: Request, cu: CurrentUser = Depends(curren
                 except TimeoutError:
                     yield {"event": "ping", "data": "{}"}
                     continue
-                yield {"event": ev["type"], "data": json.dumps(ev, ensure_ascii=False)}
+                yield {"event": ev["type"], "id": str(ev["seq"]), "data": json.dumps(ev, ensure_ascii=False)}
                 if ev["type"] in ("completed", "failed", "paused"):
                     break
         finally:

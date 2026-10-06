@@ -1,5 +1,6 @@
-"""Local actions (files, PDF, Excel, desktop notification, log). Telegram and email go through the connectors
-(`core/connectors`, called by the executor); ERP updates are simulated in this phase."""
+"""Local actions (files, PDF, Excel, log) and the desktop notification. Everything that sends (desktop, Telegram,
+email) is a notification node, run by the executor (`_notify`) through `notify_desktop` or the connectors
+(`core/connectors`); ERP updates are simulated in this phase."""
 
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ from typing import Any
 import pandas as pd
 
 from app.core.automations.pdf import write_pdf
-from app.data.models.automation import ActionNode, ActionType
+from app.data.models.automation import ActionNode, ActionType, NotificationNode
 from app.helpers.logging import get_logger
 from app.helpers.text import slug
 from app.i18n import t
@@ -51,7 +52,7 @@ def notify_desktop(title: str, message: str) -> bool:
     return False
 
 
-def action_body(node: ActionNode, state: dict[str, Any]) -> str:
+def action_body(node: ActionNode | NotificationNode, state: dict[str, Any]) -> str:
     """The message/report body: the node's template filled from the run state, else a summary of the run."""
     summary = state.get("_summary") or "\n".join(
         f"{k}: {v}" for k, v in state.items() if not k.startswith("_") and k != "trigger"
@@ -62,8 +63,6 @@ def action_body(node: ActionNode, state: dict[str, Any]) -> str:
 def run_action(node: ActionNode, state: dict[str, Any], out_dir: Path, automation_title: str,
                test_mode: bool, lang: str = "en") -> tuple[str, Any, str]:
     """Returns (status, output, message). status: ok | simulated."""
-    if node.action.connector:
-        raise RuntimeError("connector actions are sent by the executor through the connectors")
     body = action_body(node, state)
     stamp = state.get("_stamp", "run")
     name = slug(node.label, 40)
@@ -73,11 +72,6 @@ def run_action(node: ActionNode, state: dict[str, Any], out_dir: Path, automatio
     if node.action == ActionType.log:
         log.info("automation log node=%s", node.id)
         return "ok", body[:2000], t("run.logged", lang)
-    if node.action == ActionType.notify:
-        if test_mode:
-            return "simulated", body[:500], t("run.notify_test", lang, target=node.target or t("run.the_manager", lang))
-        shown = notify_desktop(automation_title, body)
-        return "ok", body[:500], t("run.notify_desktop" if shown else "run.notify_logged", lang)
     folder = Path(node.target).expanduser() if (node.target and not test_mode and Path(node.target).expanduser().is_absolute()) else out_dir
     folder.mkdir(parents=True, exist_ok=True)
     if node.action == ActionType.write_file:

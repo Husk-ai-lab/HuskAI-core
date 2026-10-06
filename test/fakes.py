@@ -129,8 +129,8 @@ def default_handler(messages: list[BaseMessage], tools: list[str]) -> AIMessage:
                                  {"role": "memoria", "label": "Revisioni precedenti", "subtitle": "memoria", "document_ids": doc_ids[:1]}]},
                 {"ref": "anomalie", "kind": "condition", "label": "Anomalie trovate?", "after": "analisi",
                  "field": "anomalie", "op": ">", "value": 0},
-                {"ref": "avvisa", "kind": "action", "label": "Avvisa Ufficio tecnico", "after": "anomalie", "branch": "vero",
-                 "action": "email", "target": "Ufficio tecnico"},
+                {"ref": "avvisa", "kind": "notification", "label": "Avvisa Ufficio tecnico", "after": "anomalie", "branch": "vero",
+                 "channel": "gmail", "recipients": "ufficio.tecnico@officine.it", "subject": "Anomalie trovate"},
                 {"ref": "archivia", "kind": "action", "label": "Archivia report PDF", "after": "anomalie", "branch": "falso",
                  "action": "pdf_report"},
             ],
@@ -171,7 +171,7 @@ def default_handler(messages: list[BaseMessage], tools: list[str]) -> AIMessage:
             return _call("studio_explain_failure", {"run_id": trace.group(1) if trace else ""})
         if "Acquisti" in ask and not done:
             cond = re.search(r"'id': '(\w+)', 'label': '[^']*', [^\n]*'kind': 'condition'", text)
-            return _call("add_node", {"node": {"kind": "action", "label": "Avvisa Acquisti", "action": "email", "target": "Acquisti"},
+            return _call("add_node", {"node": {"kind": "notification", "label": "Avvisa Acquisti", "channel": "gmail", "recipients": "acquisti@officine.it"},
                                       "after": cond.group(1) if cond else "anomalie", "branch": "vero"})
         if "soglia" in ask and not done:
             return _call("update_node", {"node_id": "anomalie", "changes": {"value": 3}})

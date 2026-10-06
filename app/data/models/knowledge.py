@@ -197,7 +197,7 @@ class MemoryDoc(OrgScoped):
 
 
 # --- document cards (discovery step 3: the shared summary memory) ------------------------------
-CARD_VERSION = 2  # bump when the card prompt or the computed facts change: cached cards are rebuilt
+CARD_VERSION = 3  # bump when the card prompt or the computed facts change: cached cards are rebuilt
 
 
 class CardKind(StrEnum):

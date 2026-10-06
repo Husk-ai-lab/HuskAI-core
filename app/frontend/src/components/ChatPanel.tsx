@@ -6,10 +6,12 @@ import type { Automation, ChatMessage, ChatView, Personality, PersonalityId, Pro
 import { useT } from "../i18n";
 import { useDocuments } from "../lib/hooks";
 import { Logo } from "./Logo";
+import { Markdown } from "./Markdown";
 import { DiagnoseButton, StudioAction } from "./StudioAction";
 
 function describeOp(op: Record<string, any>, t: (k: string) => string): string {
-  const what = op.node?.label ?? op.node_id ?? (op.source ? `${op.source} → ${op.target}` : op.label ?? op.cron ?? "");
+  const notif = op.node?.kind === "notification" ? ` · ${t(`notification.channel_${op.node.channel ?? "desktop"}`)}${op.node.recipients ? ` · ${op.node.recipients}` : ""}` : "";
+  const what = `${op.node?.label ?? op.node_id ?? (op.source ? `${op.source} → ${op.target}` : op.label ?? op.cron ?? "")}${notif}`;
   const extra = op.changes ? ` ${JSON.stringify(op.changes)}` : "";
   const key = `chat.op.${op.op}`;
   const label = t(key);
@@ -154,7 +156,7 @@ export function ChatPanel({ automation, selectedNodeId, suggestion = null, onSug
         ) : (
           <div key={m.id} className={`msg ${m.role === "user" ? "user" : ""} ${m.meta?.error ? "err" : ""}`}>
             <div className="who">Husk</div>
-            <p>{m.content}</p>
+            {m.role === "assistant" && !m.meta?.error ? <Markdown text={m.content} variant="chat" /> : <p>{m.content}</p>}
             {Boolean(m.meta?.error) && (
               <div className="err-actions">
                 <StudioAction traceId={m.meta.trace_id as string | undefined} traced={m.meta.traced as boolean | undefined} />

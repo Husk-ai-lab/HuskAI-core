@@ -124,7 +124,9 @@ def test_default_user_language_is_english(client: TestClient) -> None:
     assert client.get("/api/v1/user/me").json()["settings"]["language"] == "en"
 
 
-async def test_agents_write_in_the_users_language(services) -> None:  # type: ignore[no-untyped-def]
+async def test_summaries_follow_the_documents_language_and_facts_the_users(services) -> None:  # type: ignore[no-untyped-def]
+    """An Italian document is summarised in Italian and an English one in English, whatever the UI language is; the
+    company facts and the linking tags stay in the user's language."""
     from app.core.agents.explorer.summarizer import Summarizer
     from app.gateways.sqlite.repositories import UserRepo
     from test.fakes import FakeProvider, default_handler
@@ -140,16 +142,26 @@ async def test_agents_write_in_the_users_language(services) -> None:  # type: ig
     repo = UserRepo(services.db)
     from app.data.models.user import Language
 
-    repo.save_settings(USER, repo.get_settings(USER).model_copy(update={"language": Language.it}))
     ks = services.knowledge(ORG)
-    doc = ks.add("Procedura.md", b"# Procedura\n\nOgni sera il capoturno ricopia i dati a mano.", USER, True)
+    it_doc = ks.add("Procedura.md", ITALIAN_DOC.encode(), USER, True)
+    en_doc = ks.add("Procedure.md", ENGLISH_DOC.encode(), USER, True)
+    assert (it_doc.language, en_doc.language) == ("it", "en")
+
+    repo.save_settings(USER, repo.get_settings(USER).model_copy(update={"language": Language.it}))
     ctx = services.agent_context(ORG, USER)
     assert ctx.language == "it"
-    await Summarizer(ctx).text_card(doc)
-    assert "in Italian" in seen[-1]
-    seen.clear()
-    await Summarizer(services.agent_context(ORG, USER, language="en")).text_card(doc)
-    assert "in English" in seen[-1]
+    await Summarizer(ctx).text_card(it_doc)
+    assert "`sentence` and `summary` in Italian" in seen[-1] and "signals (freq, dept, sys), in Italian" in seen[-1]
+    await Summarizer(ctx).text_card(en_doc)  # English document, Italian user
+    assert "`sentence` and `summary` in English" in seen[-1]
+    assert "facts, and the free text of the signals (freq, dept, sys), in Italian" in seen[-1]
+    assert "Quotes stay verbatim" in seen[-1]
+    await Summarizer(services.agent_context(ORG, USER, language="en")).text_card(it_doc)  # Italian document, English user
+    assert "`sentence` and `summary` in Italian" in seen[-1] and "facts, and the free text of the signals (freq, dept, sys), in English" in seen[-1]
+
+
+ITALIAN_DOC = "# Procedura\n\nOgni sera il capoturno ricopia a mano i dati della produzione nel gestionale e poi invia una email all'ufficio acquisti."
+ENGLISH_DOC = "# Procedure\n\nEvery evening the shift leader copies the production data by hand into the system and then sends an email to the purchasing office."
 
 
 # --- public config ---------------------------------------------------------------------------------

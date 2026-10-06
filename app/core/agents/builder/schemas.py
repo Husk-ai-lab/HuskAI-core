@@ -6,7 +6,13 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.data.models.automation import ActionType, AttachmentRole, ConditionOp, TriggerType
+from app.data.models.automation import (
+    ActionType,
+    AttachmentRole,
+    ConditionOp,
+    NotificationChannel,
+    TriggerType,
+)
 
 
 class AttachmentDraft(BaseModel):
@@ -28,7 +34,7 @@ class TriggerDraft(BaseModel):
 
 class StepDraft(BaseModel):
     ref: str = Field(..., description="short unique lowercase id, e.g. 'analysis'")
-    kind: Literal["agent", "decision", "condition", "action"]
+    kind: Literal["agent", "decision", "condition", "action", "notification"]
     label: str = Field(..., max_length=80)
     subtitle: str | None = Field(None, max_length=80)
     after: str = Field("trigger", description="ref of the previous step ('trigger' for the first)")
@@ -40,11 +46,13 @@ class StepDraft(BaseModel):
     field: str | None = Field(None, description="condition: state key, e.g. 'anomalies'")
     op: ConditionOp | None = None
     value: float | str | None = None
-    action: ActionType | None = None
-    target: str | None = Field(None, description="email: recipient address(es); folder or ERP entity for other actions")
-    template: str | None = None
-    subject: str | None = Field(None, description="email: subject")
-    attach_report: bool = Field(False, description="email/telegram: attach the PDF of an earlier pdf_report step")
+    action: ActionType | None = Field(None, description="action: write_file | write_xlsx | pdf_report | log | erp_update (anything that SENDS is kind 'notification')")
+    target: str | None = Field(None, description="action: folder or ERP entity")
+    template: str | None = Field(None, description="action: file/report body; notification: the message")
+    channel: NotificationChannel | None = Field(None, description="notification: desktop | telegram | gmail")
+    recipients: str | None = Field(None, description="notification by gmail: recipient address(es), comma-separated; never invent one")
+    subject: str | None = Field(None, description="notification by gmail: subject")
+    attach_report: bool = Field(False, description="notification: attach the PDF made by an earlier pdf_report step")
 
 
 class FlowDraft(BaseModel):

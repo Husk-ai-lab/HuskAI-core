@@ -36,7 +36,24 @@ from app.data.models.suggestion import OPEN_STATUSES, Suggestion, SuggestionKind
 from app.data.models.user import User, UserSettings
 from app.gateways.sqlite.database import Database
 from app.helpers.ids import new_id
+from app.helpers.logging import get_logger
 from app.helpers.time import iso, parse_iso, utcnow
+
+log = get_logger("repositories")
+
+
+def _valid_rows(rows: Any, model: Any, what: str) -> list[Any]:
+    """Rows that no longer validate (saved by an older build: e.g. a node type that was replaced) are skipped and
+    reported once, so they can never take the app or the scheduler down at startup."""
+    out, skipped = [], 0
+    for r in rows:
+        try:
+            out.append(model.model_validate_json(r["data"]))
+        except Exception:
+            skipped += 1
+    if skipped:
+        log.warning("%d %s row(s) from an older version could not be read and are ignored", skipped, what)
+    return out
 
 
 def _j(v: Any) -> str:
@@ -187,13 +204,15 @@ class DocumentRepo:
         return (r["markdown"] or "") if r else ""
 
     def mark_ingested(
-        self, doc_id: str, markdown: str, excerpt: str, rows: int | None, department: str | None
+        self, doc_id: str, markdown: str, excerpt: str, rows: int | None, department: str | None,
+        language: str | None = None,
     ) -> None:
         with self.db.tx() as c:
             c.execute(
                 "UPDATE documents SET status = ?, markdown = ?, excerpt = ?, rows = ?, "
-                "department = COALESCE(?, department), error = NULL WHERE org_id = ? AND id = ?",
-                (DocumentStatus.ingested.value, markdown, excerpt, rows, department, self.org_id, doc_id),
+                "department = COALESCE(?, department), language = COALESCE(?, language), error = NULL "
+                "WHERE org_id = ? AND id = ?",
+                (DocumentStatus.ingested.value, markdown, excerpt, rows, department, language, self.org_id, doc_id),
             )
 
     def set_department(self, doc_id: str, department: str | None) -> None:
@@ -568,21 +587,21 @@ class AutomationRepo:
             r = c.execute(
                 "SELECT data FROM automations WHERE org_id = ? AND id = ?", (self.org_id, automation_id)
             ).fetchone()
-        return Automation.model_validate_json(r["data"]) if r else None
+        return (_valid_rows([r], Automation, "automation") or [None])[0] if r else None
 
     def list(self) -> list[Automation]:
         with self.db.read() as c:
             rows = c.execute(
                 "SELECT data FROM automations WHERE org_id = ? ORDER BY updated_at DESC", (self.org_id,)
             ).fetchall()
-        items = [Automation.model_validate_json(r["data"]) for r in rows]
+        items = _valid_rows(rows, Automation, "automation")
         return sorted(items, key=lambda a: -a.hours_per_week)
 
     def all_active(self) -> list[Automation]:
         """Across orgs: used by the local scheduler at startup."""
         with self.db.read() as c:
             rows = c.execute("SELECT data FROM automations WHERE status = 'attiva'").fetchall()
-        return [Automation.model_validate_json(r["data"]) for r in rows]
+        return _valid_rows(rows, Automation, "automation")
 
     def versions(self, automation_id: str) -> list[AutomationVersion]:
         with self.db.read() as c:
@@ -591,7 +610,7 @@ class AutomationRepo:
                 "WHERE a.org_id = ? AND v.automation_id = ? ORDER BY v.version DESC",
                 (self.org_id, automation_id),
             ).fetchall()
-        return [AutomationVersion.model_validate_json(r["data"]) for r in rows]
+        return _valid_rows(rows, AutomationVersion, "automation version")
 
     def delete(self, automation_id: str) -> None:
         with self.db.tx() as c:

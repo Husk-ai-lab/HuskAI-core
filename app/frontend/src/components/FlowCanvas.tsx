@@ -1,5 +1,6 @@
 /**
- * Read-only flow canvas (users don't edit by hand in this phase: the assistant does).
+ * Flow canvas. The structure is the assistant's to change; the only thing a user sets by hand is how a notification
+ * node delivers (click its chip).
  * Designed from scratch for Husk on top of React Flow (@xyflow/react, MIT).
  */
 import {
@@ -8,10 +9,12 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Minus, Plus } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Automation, FlowNode } from "../api/types";
 import { translate, useI18n, type Lang } from "../i18n";
 import { attachmentIcon, nodeIcon } from "./icons";
+import { NotificationFlowNode } from "./NotificationNode";
+import { NotificationPopup } from "./NotificationPopup";
 
 type MainData = { node: FlowNode; selected: boolean };
 type AttData = { label: string; subtitle?: string | null; role: string };
@@ -69,7 +72,7 @@ function AttNode({ data }: NodeProps<Node<AttData>>) {
   );
 }
 
-const nodeTypes = { tile: TileNode, agent: AgentNode, att: AttNode };
+const nodeTypes = { tile: TileNode, agent: AgentNode, att: AttNode, notification: NotificationFlowNode };
 
 /** "vero"/"falso" are stored ids; decision options are free text shown as written. */
 function branchLabel(branch: string, lang: Lang): string {
@@ -78,11 +81,14 @@ function branchLabel(branch: string, lang: Lang): string {
   return label === key ? branch : label;
 }
 
-function toFlow(a: Automation, selected: string | null, lang: Lang): { nodes: Node[]; edges: Edge[] } {
+function toFlow(a: Automation, selected: string | null, lang: Lang, onEdit: (id: string) => void): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   for (const n of a.graph.nodes) {
-    nodes.push({ id: n.id, type: n.kind === "agent" ? "agent" : "tile", position: n.position, data: { node: n, selected: selected === n.id }, draggable: false });
+    nodes.push({
+      id: n.id, type: n.kind === "agent" ? "agent" : n.kind === "notification" ? "notification" : "tile", position: n.position,
+      data: { node: n, selected: selected === n.id, onEdit }, draggable: false,
+    });
     if (n.kind === "agent") {
       const atts = n.attachments ?? [];
       atts.forEach((att, i) => {
@@ -123,13 +129,17 @@ function ZoomPill() {
 
 function Inner({ automation, selected, onSelect }: { automation: Automation; selected: string | null; onSelect: (id: string | null) => void }) {
   const { lang } = useI18n();
-  const { nodes, edges } = useMemo(() => toFlow(automation, selected, lang), [automation, selected, lang]);
+  const [editing, setEditing] = useState<string | null>(null);
+  const onEdit = useCallback((id: string) => setEditing(id), []);
+  const { nodes, edges } = useMemo(() => toFlow(automation, selected, lang, onEdit), [automation, selected, lang, onEdit]);
+  const editingNode = automation.graph.nodes.find((n) => n.id === editing && n.kind === "notification");
   const { fitView } = useReactFlow();
   useEffect(() => {
     const t = setTimeout(() => fitView({ padding: 0.2 }), 50);
     return () => clearTimeout(t);
   }, [automation.version, fitView]);
   return (
+    <>
     <ReactFlow
       nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }}
       nodesDraggable={false} nodesConnectable={false} edgesFocusable={false} deleteKeyCode={null}
@@ -140,6 +150,8 @@ function Inner({ automation, selected, onSelect }: { automation: Automation; sel
       <Background variant={BackgroundVariant.Dots} gap={16} size={1.8} color="var(--dot)" />
       <ZoomPill />
     </ReactFlow>
+    {editingNode && <NotificationPopup automation={automation} node={editingNode} onClose={() => setEditing(null)} />}
+    </>
   );
 }
 

@@ -46,6 +46,7 @@ class Document(OrgScoped):
     authorized_at: datetime  # explicit user authorisation before any processing
     uploaded_by: str
     source_path: str | None = None  # relative path when uploaded as part of a folder
+    language: str | None = None  # it | en, detected at ingest (summaries are written in it)
     created_at: datetime = Field(default_factory=utcnow)
 
 

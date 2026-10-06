@@ -19,8 +19,8 @@ export function ConnectorModal({ kind, initialTab = "guide", onClose }: { kind: 
           <button className="icon-btn" onClick={onClose} aria-label={t("common.close")}><X size={15} /></button>
         </div>
         <div className="tabs" role="tablist">
-          <button role="tab" aria-selected={tab === "guide"} className={`tab ${tab === "guide" ? "on" : ""}`} onClick={() => setTab("guide")}>{t("connectors.tab_guide")}</button>
-          <button role="tab" aria-selected={tab === "setup"} className={`tab ${tab === "setup" ? "on" : ""}`} onClick={() => setTab("setup")}>{t("connectors.tab_setup")}</button>
+          <button role="tab" aria-selected={tab === "guide"} className={`tab ${tab === "guide" ? "active" : ""}`} onClick={() => setTab("guide")}>{t("connectors.tab_guide")}</button>
+          <button role="tab" aria-selected={tab === "setup"} className={`tab ${tab === "setup" ? "active" : ""}`} onClick={() => setTab("setup")}>{t("connectors.tab_setup")}</button>
         </div>
         {tab === "guide" ? (
           <>

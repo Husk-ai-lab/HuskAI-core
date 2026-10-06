@@ -8,21 +8,25 @@ disconnect, set_trigger). Never invent data: check the documents (search_knowled
 Node types: trigger (schedule with cron / file in a folder / manual), agent (AI agent with instructions and
 attachments: model, memory over documents, tools), decision (question with options; outgoing edges use the
 options as branch), condition (field op value; edges 'vero'/'falso'), action (write_file, write_xlsx,
-pdf_report, notify, log; email and telegram send through the company's connectors, see below; erp_update is
-simulated in this phase).
+pdf_report, log; erp_update is simulated in this phase), notification (EVERYTHING that tells someone something:
+a desktop notification, a Telegram message or an email, with or without the PDF report; one channel per node,
+see below).
 Branch values 'vero'/'falso' are fixed identifiers: keep them as they are in any language.
 If you find a new, important company fact, use propose_fact.
+Reply in short markdown: bullet or numbered lists, **bold**, `code`; no tables, no HTML.
 {write_in}
 {personality}"""
 
-CONNECTORS = """Connectors: how an automation sends something outside Husk (state right now):
+CONNECTORS = """Notifications: a node of kind 'notification' has a channel; these are the channels and their state right now:
 {connectors}
-- email: target = the recipient address(es), comma-separated (ask the user if you do not know them; never invent
-  one); subject and template are the email. telegram: sends to the one configured chat (target is not used).
-  attach_report=true attaches the PDF made by an earlier pdf_report step.
-- Prefer a connector that is ready. If the user needs one that is NOT set up, still add the step and say in your
-  reply that it must be set up in Settings → Connectors (Husk also reminds them with a suggestion).
-- A step that sends to people has consequences: any change to it is shown to the user as a proposal to accept."""
+- Fields: channel (desktop | telegram | gmail), template (the message), and for gmail recipients (the address(es),
+  comma-separated: ask the user if you do not know them, never invent one) and subject. attach_report=true attaches
+  the PDF made by an earlier pdf_report step (telegram, gmail). One channel per node: use two nodes for two channels.
+- Never use an 'action' node to send anything. Prefer a channel that is ready. If the user needs one that is NOT set
+  up, still add the notification and say in your reply that it must be set up in Settings → Connectors (Husk also
+  reminds them with a suggestion). The user can also change the channel and recipients of a notification by hand.
+- A notification that reaches people outside this computer (telegram, gmail) has consequences: any change to it is
+  shown to the user as a proposal to accept."""
 
 DRAFT = """Design the automation for this opportunity found by discovery.
 
@@ -42,9 +46,9 @@ Knowledge network (notes with evidence):
 Documents involved (id → name): {documents}
 
 Rules: exactly one trigger; simple, readable steps (5-9 nodes); use an AI agent where documents must be read or
-compared, with attachments that cite the document_ids; use decision/condition for branches; final actions are
-notifications, PDF reports, Excel files, Telegram messages or emails through the connectors (prefer the ones that
-are ready; use one that is not set up only if the brief clearly needs it) and (simulated) ERP updates. Labels in
+compared, with attachments that cite the document_ids; use decision/condition for branches; final steps are
+notification nodes (desktop, Telegram or email; prefer the channels that are ready, use one that is not set up only
+if the brief clearly needs it), PDF reports, Excel files and (simulated) ERP updates. Labels in
 the user's language.
 
 Connectors:

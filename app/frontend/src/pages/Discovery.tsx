@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Check, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { DiscoveryReport, DiscoveryRunView, MemoryView } from "../api/types";
@@ -11,7 +11,7 @@ import { TopBar } from "../components/TopBar";
 import { useI18n } from "../i18n";
 import { hoursValue, pad2 } from "../lib/format";
 import { useDiscoveryState, useDocuments, useSystem } from "../lib/hooks";
-import { stageOf, stageViews } from "../lib/discoveryStages";
+import { keepNewer, stageOf, stageViews } from "../lib/discoveryStages";
 import { WORK_WARNING_MIN, minutesUntil, nextBlocking, useNow } from "../lib/maintenance";
 
 /** Working weeks per year used to annualise the weekly estimate (stated in the UI). */
@@ -22,19 +22,25 @@ interface RunEvent { key?: string | null; step?: string | null; params?: Record<
 function useRunEvents(runId: string | undefined, onEnd: () => void): RunEvent | null {
   const [last, setLast] = useState<RunEvent | null>(null);
   const qc = useQueryClient();
+  const endRef = useRef(onEnd);  // the caller passes a new function every render: it must NOT re-open the stream
+  endRef.current = onEnd;
   useEffect(() => {
     if (!runId) return;
+    setLast(null);
     const es = new EventSource(`/api/v1/discovery/runs/${runId}/events`);
-    const refresh = () => qc.invalidateQueries({ queryKey: ["discovery-state"] });
+    let timer: number | undefined;
+    const refresh = () => {  // at most one refetch per burst of events
+      if (timer === undefined) timer = window.setTimeout(() => { timer = undefined; qc.invalidateQueries({ queryKey: ["discovery-state"] }); }, 800);
+    };
     const handler = (e: MessageEvent) => {
       const d = JSON.parse(e.data) as RunEvent;
-      if (d.key && !d.key.startsWith("discovery.steps.")) setLast(d);  // step titles are the stage rows, not log lines
+      if (d.key && !d.key.startsWith("discovery.steps.")) setLast((prev) => keepNewer(prev, d));  // step titles are the stage rows, not log lines
       refresh();
     };
     ["step_started", "step_done", "progress", "log", "waiting_network"].forEach((n) => es.addEventListener(n, handler as EventListener));
-    ["completed", "failed", "paused"].forEach((n) => es.addEventListener(n, () => { es.close(); refresh(); onEnd(); }));
-    return () => es.close();
-  }, [runId, qc, onEnd]);
+    ["completed", "failed", "paused"].forEach((n) => es.addEventListener(n, () => { es.close(); qc.invalidateQueries({ queryKey: ["discovery-state"] }); endRef.current(); }));
+    return () => { es.close(); if (timer !== undefined) window.clearTimeout(timer); };
+  }, [runId, qc]);
   return last;
 }
 

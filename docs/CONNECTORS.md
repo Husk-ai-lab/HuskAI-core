@@ -1,10 +1,10 @@
 # Connectors: Telegram and Gmail
 
-Connectors are how an automation sends something outside Husk: a message, an email, a PDF report. Automations still run only on this computer; only what they send leaves it, **straight from this computer to Telegram or Google, not through Husk's servers**.
+Connectors are how an automation sends something outside Husk: a message, an email, a PDF report. In an automation everything that tells someone something is a **notification node** (kind `notification`) with one channel: `desktop` (a notification on this computer, no connector), `telegram` or `gmail`; the PDF report is still made by a `pdf_report` action step, and the notification has an "attach the report" switch. Automations still run only on this computer; only what they send leaves it, **straight from this computer to Telegram or Google, not through Husk's servers**.
 
 | | Telegram | Gmail |
 | --- | --- | --- |
-| Action in an automation | `telegram` | `email` |
+| Channel of a **notification node** (one channel per node) | `telegram` | `gmail` |
 | What it uses | The customer's own bot (created with @BotFather): bot token + the chat that receives messages | SMTP (`smtp.gmail.com:465`) with a Google **App Password** |
 | Set up in Husk | Token → **Detect my chat** (reads `getUpdates` after the user pressed Start) → verify and save | Address + App Password → verify (SMTP login) and save |
 | Sends | Text (split at 4096 characters, one message per second) and PDF reports (`sendDocument`) | Text emails to one or more addresses, optional PDF attachment |
@@ -24,9 +24,13 @@ OAuth for Gmail (scope `gmail.send`) is the planned second method for Workspace 
 2. **No secret, address, chat id, message or exception text** in a log, a run log or an API response. The Telegram token sits in every Bot API URL, so errors become short codes (`invalid_token`, `auth_failed`, `chat_not_found`, …) and the log scrubber also redacts `bot<id>:<token>`, OAuth query parameters and bearer tokens. httpx's own request logging is kept at WARNING.
 3. A run log keeps `{connector, chars, recipients}` for a send, never the content.
 4. **Prova never reaches third parties**: Telegram goes to the configured chat (the user's own), email only to the connector's own address with a `[Prova]` subject. Real runs send to the step's recipients.
-5. **A step that sends is always a proposal** (`changes_sends`): whatever the personality, the Builder's change is shown for acceptance first.
+5. **A notification that reaches people outside this computer is always a proposal when the Builder adds or changes it** (`changes_sends`, Telegram and Gmail only; a desktop notification reaches nobody else): whatever the personality, the change is shown for acceptance first. The user's own edit in the node popup (below) applies at once.
 6. A connector that is **not set up** at run time skips the step (`skipped`) and the run goes on; a send that **fails** fails the run and turns the connector to "needs attention".
-7. Email recipients must be real addresses (a role such as "the purchasing manager" is skipped with a clear message).
+7. Email recipients must be real addresses (a role such as "the purchasing manager" is skipped with a clear message). The popup validates them (at most 10) and the server checks them again.
+
+## The notification node and the popup
+
+On the canvas the notification node is drawn in the full accent colour; its chip shows the channel (and, for Gmail, the recipients). Clicking the chip opens the popup: choose **This computer / Telegram / Gmail** (with each connector's live state and a "Set up" button), the recipients and subject for Gmail, the message, and whether to attach the report. Save calls `PUT /api/v1/automations/{id}/nodes/{node}/notification`, which applies one `update_node` through `graph_ops` (only those five fields), saves a new version with the user as author, syncs the scheduler and raises the connector suggestion if the chosen connector is not set up. Old `notify` / `email` / `telegram` action nodes no longer exist (saved automations from before are ignored, not converted).
 
 ## The Builder and the suggestions
 

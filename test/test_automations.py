@@ -50,7 +50,7 @@ def test_graph_validation_rules() -> None:
 
 def test_operations() -> None:
     g = compile_draft(_draft())
-    g2 = apply_op(g, {"op": "add_node", "node": {"kind": "action", "label": "Avvisa Acquisti", "action": "email"},
+    g2 = apply_op(g, {"op": "add_node", "node": {"kind": "notification", "label": "Avvisa Acquisti", "channel": "gmail", "recipients": "acquisti@officine.it"},
                       "after": "anomalie", "branch": "vero"})
     assert any(n.label == "Avvisa Acquisti" for n in g2.nodes)
     g3 = apply_op(g2, {"op": "remove_node", "node_id": "analisi"})
@@ -80,7 +80,7 @@ async def test_executor_prova_runs_locally(services, tmp_path) -> None:  # type:
     assert run.status.value == "success", run.error
     by_node = {e.node_id: e for e in run.log}
     assert by_node["anomalie"].output["outcome"] == "vero"  # fake agent found 2 anomalies
-    assert by_node["avvisa"].status == "skipped"  # email goes through the Gmail connector: not set up → skipped, run goes on
+    assert by_node["avvisa"].status == "skipped"  # a Gmail notification: the connector is not set up → skipped, the run goes on
     assert "archivia" not in by_node  # the other branch did not run
 
 

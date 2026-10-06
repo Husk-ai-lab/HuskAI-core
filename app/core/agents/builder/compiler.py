@@ -13,6 +13,8 @@ from app.data.models.automation import (
     ConditionNode,
     ConditionOp,
     DecisionNode,
+    NotificationChannel,
+    NotificationNode,
     TriggerNode,
 )
 from app.helpers.text import slug
@@ -55,10 +57,13 @@ def compile_draft(draft: FlowDraft) -> AutomationGraph:
         elif s.kind == "condition":
             nodes.append(ConditionNode(id=nid, label=s.label, subtitle=s.subtitle, field=s.field or "risultato",
                                        op=s.op or ConditionOp.gt, value=s.value if s.value is not None else 0))
+        elif s.kind == "notification":
+            nodes.append(NotificationNode(id=nid, label=s.label, subtitle=s.subtitle,
+                                          channel=s.channel or NotificationChannel.desktop, recipients=s.recipients,
+                                          subject=s.subject, template=s.template, attach_report=s.attach_report))
         else:
             nodes.append(ActionNode(id=nid, label=s.label, subtitle=s.subtitle, action=s.action or ActionType.log,
-                                    target=s.target, template=s.template, subject=s.subject,
-                                    attach_report=s.attach_report))
+                                    target=s.target, template=s.template))
         edges.append(edge(ref_to_id[s.after] if s.after in ref_to_id else "trigger", nid, s.branch))
     return layout(AutomationGraph(nodes=nodes, edges=edges))
 

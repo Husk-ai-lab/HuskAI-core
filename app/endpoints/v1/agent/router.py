@@ -64,7 +64,7 @@ def _suggestions(a: Automation, lang: str) -> list[str]:
         if n.kind == "condition":
             out.append(t("agent.suggest_explain_false", lang, label=n.label))
             break
-    if any(n.kind == "action" and n.action.value in ("email", "notify") for n in a.graph.nodes):
+    if any(n.kind == "notification" for n in a.graph.nodes):
         out.append(t("agent.suggest_notify_purchasing", lang))
     trig = next((n for n in a.graph.nodes if n.kind == "trigger"), None)
     if trig is not None and trig.trigger.value == "schedule":

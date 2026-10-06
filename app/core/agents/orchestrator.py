@@ -105,6 +105,7 @@ class DiscoveryOrchestrator:
             raise KeyError(run_id)
         run.status, run.error = RunStatus.running, None
         self.runs.update(run)
+        self.events.clear(f"discovery:{run.id}")  # a resume must not replay the failed attempt (and its terminal event)
         with span("husk.discovery.run", **{"husk.run_id": run.id, "husk.org_id": run.org_id}) as trace_id:
             run.trace_id = run.trace_id or trace_id
             run.traced = run.traced or exporting()
@@ -194,7 +195,7 @@ class DiscoveryOrchestrator:
         while True:
             if self.is_blocked():
                 raise MaintenanceActive()
-            run.current_step, run.progress, run.status = step.step, idx / len(STEP_ORDER), RunStatus.running
+            run.current_step, run.progress, run.status = step.step, max(run.progress, idx / len(STEP_ORDER)), RunStatus.running
             self.runs.update(run)
             step.status, step.started_at, step.attempts = StepStatus.running, utcnow(), step.attempts + 1
             self.runs.save_step(step)
@@ -240,7 +241,7 @@ class DiscoveryOrchestrator:
     def _sub_progress(self, run: DiscoveryRun, step: DiscoveryStepId, done: int, total: int, key: str,
                       **params: Any) -> None:
         idx = STEP_ORDER.index(step)
-        p = (idx + (done / max(total, 1))) / len(STEP_ORDER)
+        p = max(run.progress, (idx + (done / max(total, 1))) / len(STEP_ORDER))  # never backwards, even on a retry
         run.progress = p
         self.runs.update(run)
         self._emit(run, "progress", step, progress=p, key=key, params={"done": done, "total": total, **params})
@@ -294,7 +295,16 @@ class DiscoveryOrchestrator:
                 self._reading(run, finished, len(docs))
 
         self._reading(run, finished, len(docs))
-        await asyncio.gather(*(one(d) for d in docs if d.id not in done))
+        tasks = [asyncio.ensure_future(one(d)) for d in docs if d.id not in done]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException:
+            # one document failed (or the run was cancelled): stop the others NOW. Left running, they would keep
+            # emitting on this attempt's counter while the retry starts its own, and the number would jump.
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
         # documents that hit the deadline: rebuild their full card in the background, for the next run
         late = []
         for doc in docs:
@@ -304,10 +314,10 @@ class DiscoveryOrchestrator:
                 task.add_done_callback(_BACKGROUND.discard)
                 late.append(task)
         if late:  # give late summaries a little more time: the Explorer then reads full cards for them
-            finished, _ = await asyncio.wait(late, timeout=self.ctx.settings.summary_late_wait_s)
+            landed, _ = await asyncio.wait(late, timeout=self.ctx.settings.summary_late_wait_s)
             for doc in docs:
                 if doc.id in timings and timings[doc.id]["model"] == "fallback":
-                    timings[doc.id]["late_refreshed"] = any(t.done() for t in finished)
+                    timings[doc.id]["late_refreshed"] = any(t.done() for t in landed)
         ranked = self.runs.signals(run.id)
         return {"cards": len(docs), "built": len(built), "cached": len(docs) - len(built) - len(done), "timings": timings,
                 "ranking": [{"document_id": s.document_id, "score": s.score} for s in ranked]}

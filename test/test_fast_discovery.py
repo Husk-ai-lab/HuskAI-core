@@ -23,7 +23,7 @@ def test_loops_are_repaired_without_asking_the_model() -> None:
         "steps": [
             {"ref": "a", "kind": "agent", "label": "Analisi", "after": "b", "instructions": "x"},
             {"ref": "b", "kind": "condition", "label": "Anomalie?", "after": "a", "field": "n", "op": ">", "value": 0},
-            {"ref": "c", "kind": "action", "label": "Avvisa", "after": "c", "action": "notify"},
+            {"ref": "c", "kind": "notification", "label": "Avvisa", "after": "c", "channel": "desktop"},
         ]})
     with pytest.raises(ValueError):
         compile_draft(draft)
@@ -95,3 +95,61 @@ def test_parallel_work_is_reported_as_counters_not_names(client, services) -> No
     assert reading[-1]["params"]["done"] == reading[-1]["params"]["total"]
     assert drafting[-1]["params"]["done"] == drafting[-1]["params"]["total"]
     assert not any(e["key"] in ("discovery.event.analyzing",) for e in events)
+
+
+def test_the_reading_counter_only_goes_up(client, services) -> None:  # type: ignore[no-untyped-def]
+    """The user sees one number that grows: events are increasing and `done` never decreases."""
+    from test.conftest import upload_samples
+    from test.test_discovery_e2e import wait_run
+
+    upload_samples(client)
+    run = client.post("/api/v1/discovery/runs").json()["run"]
+    assert wait_run(client, run["id"])["run"]["status"] == "completed"
+    events = list(services.events._backlog[f"discovery:{run['id']}"])
+    assert [e["seq"] for e in events] == sorted(e["seq"] for e in events) and len({e["seq"] for e in events}) == len(events)
+    for key in ("discovery.event.reading", "discovery.event.drafting"):
+        done = [e["params"]["done"] for e in events if e["key"] == key]
+        assert done == sorted(done), (key, done)
+    progress = [e["progress"] for e in events if e["type"] == "progress"]
+    assert progress == sorted(progress)
+
+
+def test_event_hub_replays_only_what_a_client_missed_and_forgets_old_attempts() -> None:
+    from app.core.events import EventHub
+
+    hub = EventHub()
+    for i in range(5):
+        hub.publish("c", {"type": "progress", "n": i})
+    q = hub.subscribe("c", after=3)
+    assert [q.get_nowait()["seq"] for _ in range(q.qsize())] == [4, 5]
+    hub.publish("c", {"type": "failed"})
+    hub.clear("c")  # a new attempt starts
+    hub.publish("c", {"type": "progress"})
+    fresh = hub.subscribe("c")
+    assert fresh.qsize() == 1 and fresh.get_nowait()["seq"] == 7  # no stale "failed", ids keep increasing
+
+
+def test_a_failed_attempt_leaves_no_task_counting_in_the_background(client, services, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """One document fails while others are still being read: the others stop with it, so a retry's counter is the only one."""
+    import asyncio
+
+    from test.conftest import upload_samples
+    from test.test_discovery_e2e import wait_run
+
+    original = Summarizer.card_for
+
+    async def flaky(self, doc):  # type: ignore[no-untyped-def]
+        if doc.filename.startswith("Procedura"):
+            raise RuntimeError("boom")
+        await asyncio.sleep(0.4)
+        return await original(self, doc)
+
+    monkeypatch.setattr(Summarizer, "card_for", flaky)
+    upload_samples(client)
+    run = client.post("/api/v1/discovery/runs").json()["run"]
+    assert wait_run(client, run["id"])["run"]["status"] == "failed"
+    channel = f"discovery:{run['id']}"
+    failed_at = next(e["seq"] for e in services.events._backlog[channel] if e["type"] == "failed")
+    time.sleep(0.8)  # long enough for the slow documents to finish, had they been left running
+    late = [e for e in services.events._backlog[channel] if e["seq"] > failed_at and e["key"] == "discovery.event.reading"]
+    assert late == []

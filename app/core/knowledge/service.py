@@ -10,6 +10,7 @@ from app.core.knowledge.chunker import chunk_markdown
 from app.core.knowledge.index import KnowledgeIndex, to_hit
 from app.core.knowledge.ingest import MAX_UPLOAD_BYTES, convert, kind_for, title_for
 from app.core.knowledge.tabular.tools import TabularTools
+from app.core.knowledge.text_analysis import detect_language
 from app.data.models.document import (
     Chunk,
     Document,
@@ -108,7 +109,7 @@ class KnowledgeService:
             ]
             self.docs.replace_chunks(doc.id, chunks)
             self.docs.save_profiles(doc.id, conv.profiles)
-            self.docs.mark_ingested(doc.id, conv.markdown, conv.excerpt, conv.rows, None)
+            self.docs.mark_ingested(doc.id, conv.markdown, conv.excerpt, conv.rows, None, detect_language(conv.markdown))
         except Exception as exc:
             log.warning("ingest failed doc=%s err=%s", doc.id, type(exc).__name__)
             self.docs.mark_failed(doc.id, f"{type(exc).__name__}: {exc}")

@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
-from app.core.agents.builder.graph_ops import apply_ops
+from app.core.agents.builder.graph_ops import GraphOpError, apply_op, apply_ops
 from app.core.automations.executor import AutomationExecutor
 from app.data.models.agent import Proposal, ProposalStatus
-from app.data.models.automation import Automation, AutomationRun, AutomationStatus, RunTrigger
-from app.gateways.sqlite.repositories import AutomationRepo, ChatRepo
+from app.data.models.automation import (
+    Automation,
+    AutomationRun,
+    AutomationStatus,
+    NotificationNode,
+    RunTrigger,
+)
+from app.gateways.connectors.gmail import normalise_recipients
+from app.gateways.sqlite.repositories import AutomationRepo, ChatRepo, UserRepo
+from app.i18n import t
+from app.i18n.errors import LocalizedError
 
 
 class AutomationNotFound(KeyError):
     pass
+
+
+NOTIFICATION_FIELDS = ("channel", "recipients", "subject", "template", "attach_report")
 
 
 class AutomationService:
@@ -40,6 +52,35 @@ class AutomationService:
     async def run(self, automation_id: str, trigger: RunTrigger = RunTrigger.prova) -> AutomationRun:
         a = self.get(automation_id)
         return await run_automation(self.s, a, trigger, {}, self.user_id)
+
+    def edit_notification(self, automation_id: str, node_id: str, changes: dict) -> Automation:
+        """The one thing a user sets by hand: how a notification node delivers (channel, recipients, subject, message,
+        report). Same road as the Builder: one `update_node` through graph_ops, validated by AutomationGraph, saved as
+        a new version (so Undo works), scheduler and connector check follow. It is the user's own decision, so it is
+        applied at once, never as a proposal."""
+        a = self.get(automation_id)
+        try:
+            node = a.graph.node(node_id)
+        except KeyError:
+            raise LocalizedError("errors.node_not_found", status=404) from None
+        if not isinstance(node, NotificationNode):
+            raise LocalizedError("errors.node_not_notification", status=400)
+        changes = {k: v for k, v in changes.items() if k in NOTIFICATION_FIELDS}
+        if "recipients" in changes:
+            try:
+                changes["recipients"] = normalise_recipients(changes["recipients"])
+            except ValueError:
+                raise LocalizedError("errors.notification_recipients_invalid", status=400) from None
+        try:
+            a.graph = apply_op(a.graph, {"op": "update_node", "node_id": node_id, "changes": changes})
+        except GraphOpError:
+            raise LocalizedError("errors.node_edit_invalid", status=400) from None
+        lang = UserRepo(self.s.db).get_settings(self.user_id).language.value
+        self.repo.save(a, change_note=t("automations.change_note_notification", lang, node=node.label)[:200], author=self.user_id)
+        if self.s.scheduler is not None:
+            self.s.scheduler.sync(a)
+        self.s.connector_check(a, self.user_id)
+        return a
 
     def undo(self, automation_id: str) -> Automation:
         a = self.get(automation_id)

@@ -236,7 +236,7 @@ async def test_decide_batches_by_16_and_decodes(services) -> None:  # type: igno
         sent.append(body)
         out = {w["id"]: {"answer": w["options"][0], "p": 0.9, "probabilities": {w["options"][0]: 0.9, w["options"][1]: 0.1}}
                for w in body["questions"]}
-        return httpx.Response(200, json=out, headers={"X-Decision-Model": "qwen3-5-9b"})
+        return httpx.Response(200, json=out, headers={"X-Decision-Model": gw.settings.decision_model or ""})
 
     respx.post(f"{GW}/v1/decide").mock(side_effect=reply)
     model = GatewayDecisionModel(gw.settings, gw, UsageRepo(services.db))
@@ -246,8 +246,8 @@ async def test_decide_batches_by_16_and_decodes(services) -> None:  # type: igno
         ans = await model.ask(USER, ORG, "STATE", qs, lang="en")
     assert len(ans) == BATCH + 4 and ans["rel_0"].p == pytest.approx(0.9)
     assert sorted(len(b["questions"]) for b in sent) == [4, BATCH]
-    assert sent[0]["state"] == "STATE" and sent[0]["lang"] == "en" and sent[0]["model"] == "qwen3-5-9b"
-    assert meter.as_dict()["by_model"]["qwen3-5-9b"]["calls"] == 2
+    assert sent[0]["state"] == "STATE" and sent[0]["lang"] == "en" and sent[0]["model"] == gw.settings.decision_model
+    assert meter.as_dict()["by_model"][gw.settings.decision_model]["calls"] == 2
 
 
 @respx.mock

@@ -40,7 +40,7 @@ Official Husk AI logo (3D purple mark), exported from the source artwork into `a
 | --- | --- |
 | Email + password form, "Continua come ospite" | One "Continue with your Husk account" button: the system browser opens Clerk, a "you can close this tab" page (`/auth/done`, same design) confirms, and the app window continues by itself. No guest |
 | "Primo accesso" profile choice, Tecnico/Non tecnico | Removed (no distinction in this phase) |
-| Floating "+" (new agent / manual automation) | Removed (no manual automations) |
+| Floating "+" (new agent / manual automation) | Removed (no manual automations). The one manual control is the notification node's chip → popup (channel, recipients) |
 | AI agent items (Assistente Qualità) | Not generated in this phase |
 | Carica = local server, Attiva = production | Carica = saved locally, Attiva = scheduled on this computer |
 | Settings "Area di lavoro del prototipo" | Replaced by **Backup completo** (Esporta / Importa) |

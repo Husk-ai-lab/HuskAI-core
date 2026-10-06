@@ -6,17 +6,17 @@ Oct 6, 2026 · @Marco · run after the pivot to Clerk login, husk-gateway (no AI
 
 | Suite | Result | Time |
 | --- | --- | --- |
-| Backend — pytest (`test/`) | **178 passed**, 0 failed, 0 skipped | ~25 s |
+| Backend — pytest (`test/`) | **205 passed**, 0 failed, 0 skipped | ~25 s |
 | Backend line coverage (`app/`) | 89% at the last measurement (Oct 4, before Neon token, progress, Clerk, gateway and connectors; `coverage` is not installed here, so not re-measured) | — |
 | Frontend — TypeScript (`tsc -b`) | clean | — |
-| Frontend — vitest | **84 passed** (incl. login polling, the "you can close this tab" page, the first-login connectors popup, the guides in both languages, and the per-file no-hard-coded-text guard over every `.tsx` file) | 1.2 s |
+| Frontend — vitest | **100 passed** (incl. the discovery counter and its single event stream, the notification node and popup, chat markdown, login polling, the "you can close this tab" page, the first-login connectors popup, the guides in both languages, and the per-file no-hard-coded-text guard over every `.tsx` file) | 1.2 s |
 | Lint — ruff (`app test benchmarks installer.py`) | all checks passed | — |
 | Benchmarks — offline (`python -m benchmarks.report`) | all ran; results below | ~10 s |
 | Desktop binary — `installer.py --smoke` | built (one-folder), `/health` → `{"status":"ok","version":"0.1.0"}` (Oct 6) | ~3 min |
 | Discovery benchmark — live (`bench_discovery_tokens --live`, Valsorda 30 docs) | completed in **29 s**, 75 calls, $0.014; 6/9 planted tasks; see `benchmarks/results/DISCOVERY_BENCHMARK.md` | 29 s |
-| Visual check | (Oct 4, before the pivot; the login, popup and Settings screens of this change have NOT been looked at in a browser) Prototype screens light + dark; maintenance modal/banner; login, key screen, discovery report and editor in **English and Italian**; light bulb with dot, Suggestions page (EN light, IT dark), editor opened from a suggestion, suggestion bubble + proposal (headless Chrome, scripted model, Valsorda documents uploaded as a folder) | manual |
+| Visual check | (Oct 4, before the pivot and before the notification node, popup and chat markdown; the login, popup and Settings screens of this change have NOT been looked at in a browser) Prototype screens light + dark; maintenance modal/banner; login, key screen, discovery report and editor in **English and Italian**; light bulb with dot, Suggestions page (EN light, IT dark), editor opened from a suggestion, suggestion bubble + proposal (headless Chrome, scripted model, Valsorda documents uploaded as a folder) | manual |
 
-**Not covered by automated tests:** the real Clerk login, the real husk-gateway (chat, decisions, entitlement), real Telegram and Gmail, the real Neon Data API, a running Husk Studio, and Windows/Linux builds. See [What is not tested](#what-is-not-tested).
+**Not covered by automated tests:** how the accent notification node, its popup and the formatted chat look in a real browser, the live discovery counter on 30 documents, document-language summaries from the real model, the real Clerk login, the real husk-gateway (chat, decisions, entitlement), real Telegram and Gmail, the real Neon Data API, a running Husk Studio, and Windows/Linux builds. See [What is not tested](#what-is-not-tested).
 
 Environment: macOS 26.6 arm64 · Python 3.11.15 (uv) · Node 22 · FastAPI 0.142 · LangChain-core 1.6 · BM25s 0.3.12 · PyInstaller 6.22 · pytest 9.1.
 
@@ -240,7 +240,28 @@ Frontend `suggestions.test.tsx` (8): bulb dot only with unread; snackbar on an S
 | `test_logs_scrub_personal_data` | Email, phone and codice fiscale are scrubbed from logs |
 | `test_logs_scrub_credentials_in_urls_and_headers` | Telegram bot tokens in URLs, OAuth `code`/`state`, bearer tokens and JWTs are scrubbed, including `%s` placeholders |
 
-### Frontend — `app/frontend/src/test/` (84)
+### `test_notifications.py` — the notification node (9)
+| Test | Verifies |
+| --- | --- |
+| `test_a_notification_has_one_channel_…` · `test_sending_is_no_longer_an_action` | One channel per node, default desktop; the old `email`/`telegram`/`notify` action values no longer validate |
+| `test_only_notifications_that_reach_others_count_as_sends` | `kinds_used` / `changes_sends`: Telegram and Gmail force a proposal, desktop does not |
+| `test_desktop_notification_runs_without_leaking_the_message` | Prova shows nothing; a real run shows it; the log keeps `{channel, chars}` only |
+| `test_the_report_made_by_an_earlier_step_can_be_attached` | The PDF path flows to a later notification; Telegram not set up → skipped |
+| `test_the_user_sets_channel_and_recipients_by_hand` | `PUT …/nodes/{id}/notification`: normalised recipients, new version by the user, Undo, connector suggestion, clearing recipients |
+| `test_manual_edits_are_validated_and_limited_to_notification_nodes` | Invalid or >10 addresses, unknown channel, other node kinds, missing node/automation, only the five fields change |
+| `test_the_builder_is_told_about_notification_channels` | The channel block and the "never use an action to send" rule |
+| `test_saved_automations_from_an_older_version_are_skipped_not_fatal` | Rows with the old action values are ignored by `list`/`all_active`/`get`: no crash at startup |
+
+### `test_document_language.py` — summaries follow the document (13)
+`detect_language` (Italian, English, short, numeric, mixed → English when unsure); ingest stores the language; old rows without one are detected when summarised; spreadsheet cards use the document language; `CARD_VERSION` 3 rebuilds old cards. (`test_i18n.py` checks the prompt: summary in the document's language, facts and tags in the user's.)
+
+### Discovery counter (in `test_fast_discovery.py`, 3 new)
+`done` and progress never decrease and event ids increase; the event hub replays only what a client missed and forgets an old attempt (no stale `failed` after a resume); a failed attempt cancels the documents still being read (no second counter).
+
+### Frontend — `app/frontend/src/test/` (100)
+- `discovery.test.tsx` (+2): `keepNewer` ignores a lower count of the same step; **one** `EventSource` per run however many events arrive, and a replayed lower count never shows.
+- `markdown.test.tsx` (4): headings, numbered and bullet lists, quotes, code, bold, italic, https links; no HTML or `javascript:` links; the assistant's messages are formatted in the side chat while the user's own words and error texts stay as typed.
+- `notification.test.tsx` (8): recipient parsing; the accent node with its chip; the chip opens the popup without selecting the node; the three channels with state; recipient validation, "add my address", save through the endpoint; a desktop notification sends no recipients.
 - `ui.test.tsx` (3): login has no guest option · the Studio link appears only when a URL exists · agent markdown is rendered safely.
 - `i18n.test.tsx` (29): catalogue parity · `translate()` interpolation, plurals and fallback · browser-language detection and saved choice · **no hard-coded UI text**: parses every `.tsx` (26 files, one test each) with the TypeScript compiler and fails on JSX text or `placeholder`/`title`/`aria-label`/`alt` literals with letters.
 - `maintenance.test.tsx` (5): schedule helpers (past windows filtered, next blocking window) · acknowledgements remembered · the startup modal shows once and stays dismissed · windows more than 24 h away are ignored and the English message is used.

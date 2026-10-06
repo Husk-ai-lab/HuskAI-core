@@ -1,6 +1,6 @@
 import {
-  Bell, Bot, Clock, Database, FileSpreadsheet, FileText, Files, GitBranch, Layers, LineChart, Mail, Archive,
-  FileDown, ScrollText, Cpu, Wrench, FolderInput, Play, Table2, Split,
+  Bot, Clock, Database, FileSpreadsheet, FileText, Files, GitBranch, Layers, LineChart, Mail, Archive,
+  FileDown, ScrollText, Cpu, Wrench, FolderInput, Play, Table2, Split, Send, Monitor,
 } from "lucide-react";
 import type { Automation, FlowNode } from "../api/types";
 
@@ -25,15 +25,20 @@ export function nodeIcon(n: FlowNode, size = 22) {
   if (n.kind === "agent") return <Bot size={size} />;
   if (n.kind === "decision") return <Split size={size} />;
   if (n.kind === "condition") return <GitBranch size={size} />;
+  if (n.kind === "notification") return channelIcon(n.channel, size);
   switch (n.action) {
-    case "email": return <Mail size={size} />;
-    case "notify": return <Bell size={size} />;
     case "pdf_report": return <Archive size={size} />;
     case "write_xlsx": return <FileSpreadsheet size={size} />;
     case "erp_update": return <Database size={size} />;
     case "write_file": return <FileDown size={size} />;
     default: return <ScrollText size={size} />;
   }
+}
+
+export function channelIcon(channel: string | undefined, size = 18) {
+  if (channel === "telegram") return <Send size={size} />;
+  if (channel === "gmail") return <Mail size={size} />;
+  return <Monitor size={size} />;
 }
 
 export function attachmentIcon(role: string, size = 18) {

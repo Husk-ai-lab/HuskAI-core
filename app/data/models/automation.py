@@ -1,9 +1,9 @@
 """Automation graphs.
 
 An automation is a small directed acyclic graph: one trigger, then AI agent nodes,
-decision nodes, conditions and actions. Users never edit it by hand in this phase:
-the builder agent changes it through typed patch tools, and every change is validated
-here and stored as a new version.
+decision nodes, conditions, actions and notifications. The builder agent changes it through typed patch tools
+(`graph_ops`); the only thing a user sets by hand is the delivery of a notification node (channel, recipients,
+message). Every change is validated here and stored as a new version.
 """
 
 from __future__ import annotations
@@ -96,33 +96,50 @@ class ActionType(StrEnum):
     write_file = "write_file"
     write_xlsx = "write_xlsx"
     pdf_report = "pdf_report"
-    notify = "notify"
     log = "log"
-    email = "email"  # sent through the Gmail connector
-    telegram = "telegram"  # sent through the Telegram connector
     erp_update = "erp_update"  # simulated in this phase
 
     @property
     def simulated(self) -> bool:
         return self == ActionType.erp_update
 
-    @property
-    def connector(self) -> str | None:
-        """The connector this action sends through (telegram | gmail), if any."""
-        return {ActionType.email: "gmail", ActionType.telegram: "telegram"}.get(self)
-
 
 class ActionNode(_NodeBase):
+    """Work done on this computer: files, PDF, Excel, a log line. Anything that SENDS is a NotificationNode."""
+
     kind: Literal["action"] = "action"
     action: ActionType = ActionType.log
-    target: str | None = Field(None, max_length=200)  # folder, ERP entity, or (email) the recipient address(es)
-    template: str | None = Field(None, max_length=4000)  # message/report body with {placeholders}
+    target: str | None = Field(None, max_length=200)  # folder or ERP entity
+    template: str | None = Field(None, max_length=4000)  # report/file body with {placeholders}
+
+
+class NotificationChannel(StrEnum):
+    desktop = "desktop"  # a notification on this computer, no connector
+    telegram = "telegram"  # the Telegram connector
+    gmail = "gmail"  # the Gmail connector
+
+    @property
+    def connector(self) -> str | None:
+        """The connector this channel sends through, if any (desktop has none)."""
+        return None if self == NotificationChannel.desktop else self.value
+
+
+class NotificationNode(_NodeBase):
+    """Everything that tells someone something: a desktop notification, a Telegram message, an email, with or
+    without the PDF report. One channel per node; several channels are several nodes. The user (or the assistant)
+    chooses the channel and, for email, the recipients."""
+
+    kind: Literal["notification"] = "notification"
+    channel: NotificationChannel = NotificationChannel.desktop
+    recipients: str | None = Field(None, max_length=400)  # Gmail: address(es); Telegram sends to its configured chat
     subject: str | None = Field(None, max_length=200)  # email subject, with {placeholders}
-    attach_report: bool = False  # email/telegram: attach the PDF made by an earlier pdf_report step
+    template: str | None = Field(None, max_length=4000)  # the message, with {placeholders}; empty = run summary
+    attach_report: bool = False  # attach the PDF made by an earlier pdf_report step (Telegram, Gmail)
 
 
 Node = Annotated[
-    TriggerNode | AgentNode | DecisionNode | ConditionNode | ActionNode, Field(discriminator="kind")
+    TriggerNode | AgentNode | DecisionNode | ConditionNode | ActionNode | NotificationNode,
+    Field(discriminator="kind"),
 ]
 
 

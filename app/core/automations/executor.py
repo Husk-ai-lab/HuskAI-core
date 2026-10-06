@@ -10,11 +10,10 @@ from pydantic import BaseModel, Field
 
 from app.core.agents.harness.context import AgentContext
 from app.core.agents.harness.llm import human, structured, system
-from app.core.automations.actions import action_body, render_template, run_action
+from app.core.automations.actions import action_body, notify_desktop, render_template, run_action
 from app.core.automations.decision import DecisionProvider, LLMDecisionProvider
 from app.core.knowledge.ingest import convert, kind_for
 from app.data.models.automation import (
-    ActionNode,
     ActionType,
     AgentNode,
     Automation,
@@ -23,6 +22,8 @@ from app.data.models.automation import (
     ConditionNode,
     ConditionOp,
     NodeRunLog,
+    NotificationChannel,
+    NotificationNode,
     RunTrigger,
 )
 from app.data.models.connector import ConnectorKind
@@ -137,8 +138,8 @@ class AutomationExecutor:
                     branch = "vero" if ok else "falso"
                     entry = NodeRunLog(node_id=nid, label=node.label, status="ok",
                                        output={"field": node.field, "value": lookup(state, node.field), "outcome": branch})
-                elif node.kind == "action" and node.action.connector:
-                    status, output, message = await self._send(node, state, a, test_mode)
+                elif node.kind == "notification":
+                    status, output, message = await self._notify(node, state, a, test_mode)
                     entry = NodeRunLog(node_id=nid, label=node.label, status=status, output=output, message=message)
                 elif node.kind == "action":
                     status, output, message = run_action(node, state, out_dir, a.title, test_mode, self.ctx.language)
@@ -156,11 +157,18 @@ class AutomationExecutor:
             run.log.append(entry)
             frontier += g.successors(nid, branch) if node.kind in ("decision", "condition") else g.successors(nid)
 
-    async def _send(self, node: ActionNode, state: dict[str, Any], a: Automation, test_mode: bool) -> tuple[str, Any, str]:
-        """Telegram / email through the connector. Not set up → the step is skipped (the run goes on, a suggestion
-        asks the user to set the connector up); the send itself failing fails the run. The log keeps no body."""
+    async def _notify(self, node: NotificationNode, state: dict[str, Any], a: Automation, test_mode: bool) -> tuple[str, Any, str]:
+        """One notification: on this computer (desktop) or through Telegram / Gmail. A connector that is not set up
+        skips the step (the run goes on, a suggestion asks the user to set it up); a send that fails fails the run.
+        The log keeps no message, address or chat id."""
         lang = self.ctx.language
-        kind = ConnectorKind(node.action.connector)
+        body = action_body(node, state)
+        if node.channel == NotificationChannel.desktop:
+            if test_mode:  # Prova: nothing pops up on the screen
+                return "simulated", {"channel": "desktop", "chars": len(body)}, t("run.notify_test", lang)
+            shown = notify_desktop(a.title, body)
+            return "ok", {"channel": "desktop", "chars": len(body)}, t("run.notify_desktop" if shown else "run.notify_logged", lang)
+        kind = ConnectorKind(node.channel.connector)
         if self.ctx.connectors is None:
             return "skipped", {"connector": kind.value, "reason": "not_configured"}, t(
                 "run.connector_not_ready", lang, connector=t(f"connectors.name_{kind.value}", lang))
@@ -168,7 +176,7 @@ class AutomationExecutor:
         attachment = Path(report) if node.attach_report and report and Path(report).is_file() else None
         res = await self.ctx.connectors.send(
             self.ctx.org_id, kind, subject=render_template(node.subject, state, node.label or a.title),
-            body=action_body(node, state), target=node.target, attachment=attachment, test_mode=test_mode, lang=lang)
+            body=body, target=node.recipients, attachment=attachment, test_mode=test_mode, lang=lang)
         message = t(res.message_key, lang, **res.params)
         if res.status == "error":
             raise RuntimeError(message)

@@ -20,6 +20,7 @@ from app.core.agents.harness.context import AgentContext
 from app.core.agents.harness.llm import human, structured, system
 from app.core.knowledge.ingest import title_for
 from app.core.knowledge.tabular.facts import table_card
+from app.core.knowledge.text_analysis import detect_language
 from app.data.models.document import Document
 from app.data.models.knowledge import (
     CARD_VERSION,
@@ -32,6 +33,7 @@ from app.data.models.knowledge import (
 from app.gateways.sqlite.repositories import CardRepo
 from app.helpers.logging import get_logger
 from app.helpers.text import quote_or_snippet, truncate
+from app.i18n import language_name
 
 log = get_logger("summarizer")
 
@@ -75,11 +77,16 @@ class Summarizer:
         if cached:
             return cached, False
         if doc.kind.is_tabular:
-            card = table_card(self.ctx.knowledge, doc, self.ctx.language)
+            card = table_card(self.ctx.knowledge, doc, self._document_language(doc))
         else:
             card = await self._text_card_safe(doc)
         self.repo.save(card)
         return card, True
+
+    def _document_language(self, doc: Document) -> str:
+        """The language the document is written in (detected at ingest; older documents are detected now). English
+        when unsure."""
+        return doc.language or detect_language(self.ctx.knowledge.docs.markdown(doc.id))
 
     async def _text_card_safe(self, doc: Document) -> DocumentCard:
         """One document never fails or holds up the step: summary model → main model, within
@@ -123,7 +130,9 @@ class Summarizer:
         md = ctx.knowledge.docs.markdown(doc.id)
         h_score, h_reasons = heuristic_signal(doc, md, [], [])
         passages = _passages(ctx, doc)
-        msgs = [system(prompts.SYSTEM + "\n" + ctx.write_in()),
+        languages = prompts.LANGUAGES.format(document_language=language_name(self._document_language(doc)),
+                                             user_language=ctx.language_name)
+        msgs = [system(prompts.SYSTEM + "\n" + languages),
                 human(prompts.SUMMARIZE.format(passages=f"DOCUMENT {doc.id} — {doc.filename}\n{passages}" if passages
                                                else f"DOCUMENT {doc.id} — {doc.filename}\n(empty)",
                                                heuristics=", ".join(h_reasons) or "none"))]

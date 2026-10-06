@@ -1,6 +1,7 @@
 """Automations: list, open, Prova (local test run), Carica / Attiva (local only), history.
 
-No manual creation or manual editing in this phase: changes go through the builder chat.
+No manual creation and no manual structure editing: changes go through the builder chat. The one thing set by
+hand is how a notification node delivers (channel, recipients, subject, message, report).
 """
 
 from __future__ import annotations
@@ -15,10 +16,11 @@ from app.data.models.automation import (
     AutomationRun,
     AutomationStatus,
     AutomationVersion,
+    NotificationChannel,
     RunTrigger,
 )
 from app.endpoints.deps import CurrentUser, current_user, get_services, llm_ready, not_in_maintenance
-from app.i18n.errors import api_error
+from app.i18n.errors import LocalizedError, api_error, from_localized
 
 router = APIRouter(prefix="/api/v1/automations", tags=["automations"])
 
@@ -79,6 +81,32 @@ async def test_run(automation_id: str, cu: CurrentUser = Depends(current_user), 
         api_error(404, "errors.automation_not_found")
     studio = services.studio.run_url(run.trace_id) if run.status.value == "failed" else None
     return TestRunResponse(run=run, studio_url=studio)
+
+
+class NotificationEdit(BaseModel):
+    """Only the fields that are sent change (`recipients: null` clears them)."""
+
+    channel: NotificationChannel | None = None
+    recipients: str | None = None
+    subject: str | None = None
+    template: str | None = None
+    attach_report: bool | None = None
+
+
+@router.put("/{automation_id}/nodes/{node_id}/notification", response_model=Automation)
+async def edit_notification(automation_id: str, node_id: str, body: NotificationEdit,
+                            cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)):
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("channel") is None:
+        changes.pop("channel", None)  # a channel is always one of the three
+    if changes.get("attach_report") is None:
+        changes.pop("attach_report", None)
+    try:
+        return _svc(cu, services).edit_notification(automation_id, node_id, changes)
+    except AutomationNotFound:
+        api_error(404, "errors.automation_not_found")
+    except LocalizedError as exc:
+        from_localized(exc)
 
 
 @router.get("/{automation_id}/runs", response_model=list[AutomationRun])

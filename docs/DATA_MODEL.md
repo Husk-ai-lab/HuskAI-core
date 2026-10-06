@@ -10,6 +10,7 @@ Defined in `app/gateways/sqlite/migrations/001_init.sql`; Pydantic models in `ap
 | --- | --- | --- |
 | `orgs`, `users`, `user_settings` | Local identity (email/name stay local), theme, personality, **language** (`en` default, `it`) | Until account removed |
 | `sessions` | SHA-256 of UI session cookies | 30 days, never exported |
+| `documents.language` | `it` or `en`, detected when the document is ingested (migration 010; NULL for older rows, detected on the fly). Document summaries are written in it | With the document |
 | `connectors` | Status of the Telegram and Gmail connectors per org (`state`, a hint such as the bot's @name or the Gmail address, `last_error` as a short code; migration 009). **No credential**: those are in the OS keychain | Until removed in Settings; emptied in exports |
 | ~~`user_ai_keys`~~ | Dropped in migration 008: no AI key is kept on this computer (AI goes through husk-gateway) | — |
 | `documents`, `chunks`, `tabular_profiles` | Uploaded documents (metadata + converted markdown), chunks, sheet structure; `source_path` = relative path for folder uploads (migration 004, display only) | Until deleted by the user |

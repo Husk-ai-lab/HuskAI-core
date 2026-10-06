@@ -308,6 +308,20 @@ mark { background: var(--accent); color: #fff; border-radius: 3px; padding: 0 2p
 .flow-node.selected .tile, .agent-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .flow-node .lbl { font-family: var(--font-display); font-weight: 600; font-size: 14px; text-align: center; line-height: 1.1; color: var(--text); }
 .flow-node .sub { font-family: var(--font-mono); font-size: 9.5px; color: var(--muted); text-align: center; margin-top: -6px; }
+.notif-node { width: 190px; border-radius: 14px; background: var(--accent); color: #fff; padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow); border: 1px solid var(--accent); }
+.notif-node.selected { box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+.notif-node small { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.8; }
+.notif-node b { font-family: var(--font-display); font-weight: 600; font-size: 15px; line-height: 1.1; }
+.notif-chip { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; border: 1px solid rgba(255, 255, 255, 0.4); background: rgba(255, 255, 255, 0.16); color: #fff; border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 11.5px; cursor: pointer; text-align: left; }
+.notif-chip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notif-chip:hover { background: rgba(255, 255, 255, 0.26); }
+.notif-chip.attention { border-style: dashed; }
+.notif-node .react-flow__handle { background: #fff; border-color: var(--accent); }
+.channel-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; background: var(--surface); }
+.channel-card:hover { border-color: var(--border-strong); }
+.channel-card.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chip.bad { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+textarea.input { height: auto; padding-top: 10px; resize: vertical; font-family: inherit; }
 .agent-card { width: 150px; min-height: 58px; border-radius: 12px; background: var(--surface); border: 1px solid var(--accent-2); padding: 9px 10px; display: flex; gap: 10px; align-items: center; box-shadow: var(--shadow); }
 .agent-card .ico { width: 30px; height: 30px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
 .agent-card small { display: block; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.1em; color: var(--muted); }
@@ -358,6 +372,14 @@ mark { background: var(--accent); color: #fff; border-radius: 3px; padding: 0 2p
 .md h1 { font-size: 24px; margin: 4px 0 8px; } .md h2 { font-size: 19px; margin: 14px 0 6px; }
 .md p, .md li { font-size: 13.5px; color: var(--text-2); } .md ul { padding-left: 18px; }
 .md code { font-family: var(--font-mono); font-size: 11.5px; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+.md h3 { font-size: 15px; margin: 10px 0 4px; } .md ol { padding-left: 20px; }
+.md pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 6px 0; }
+.md pre code { background: none; padding: 0; font-size: 12px; white-space: pre; }
+.md blockquote { margin: 6px 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--accent-2); } .md blockquote p { margin: 2px 0; }
+.md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+/* in the side chat: compact and in the message's own colour */
+.md.chat { min-width: 0; } .md.chat p, .md.chat li { font-size: inherit; color: inherit; margin: 0 0 6px; white-space: normal; overflow-wrap: anywhere; }
+.md.chat h1, .md.chat h2, .md.chat h3 { font-size: 14px; margin: 8px 0 4px; } .md.chat ul, .md.chat ol { margin: 0 0 6px; padding-left: 18px; }
 
 @media (max-width: 980px) {
   .sugg-card { grid-template-columns: 1fr; }

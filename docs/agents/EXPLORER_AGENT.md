@@ -33,7 +33,7 @@ Code: `explorer/summarizer.py`, `knowledge/tabular/facts.py`; table `document_ca
   - `signals`: `rep`, `manual`, `freq`, `dept`, `vol`, `sys` (spreadsheets: rows, cadence, rows per day, empty cells, duplicates);
   - `quotes`: ≤ 3 key quotes with passage ids, validated in code (spreadsheets: computed facts `S1…`).
 - **Spreadsheets:** computed locally, **no model call**.
-- **Text:** one structured call on the summary model (json-schema mode). Per document: summary model → main model → a basic card within **25 s**. Late documents get **20 s more**, then their full card is rebuilt in the background.
+- **Text:** one structured call on the summary model (json-schema mode). `sentence` and `summary` are written in the **document's language** (detected at ingest, English when unsure; spreadsheet labels follow it too); the company facts and the `freq`/`dept`/`sys` tags stay in the **user's** language, quotes stay verbatim. `CARD_VERSION` 3. Per document: summary model → main model → a basic card within **25 s**. Late documents get **20 s more**, then their full card is rebuilt in the background.
 - **Cache:** per `sha256` + `CARD_VERSION`. Concurrency 8.
 
 ## Step 4 — linking (decision model)

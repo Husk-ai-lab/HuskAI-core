@@ -52,13 +52,14 @@ export interface MemoryView { company_profile_markdown: string; facts: Fact[]; m
 
 export interface Attachment { id: string; role: "modello" | "memoria" | "strumento"; label: string; subtitle?: string | null; document_ids: string[] }
 export interface FlowNode {
-  id: string; kind: "trigger" | "agent" | "decision" | "condition" | "action"; label: string; subtitle?: string | null;
+  id: string; kind: "trigger" | "agent" | "decision" | "condition" | "action" | "notification"; label: string; subtitle?: string | null;
   position: { x: number; y: number };
   trigger?: string; cron?: string | null; folder?: string | null;
   instructions?: string; attachments?: Attachment[];
   question?: string; options?: string[];
   field?: string; op?: string; value?: number | string;
-  action?: string; target?: string | null;
+  action?: string; target?: string | null; template?: string | null;
+  channel?: "desktop" | "telegram" | "gmail"; recipients?: string | null; subject?: string | null; attach_report?: boolean;
 }
 export interface FlowEdge { id: string; source: string; target: string; branch?: string | null }
 export interface Automation {

@@ -32,6 +32,15 @@ def parse_recipients(target: str | None) -> list[str]:
     return list(dict.fromkeys(found))[:MAX_RECIPIENTS]
 
 
+def normalise_recipients(text: str | None) -> str | None:
+    """'a@x.it; b@y.it' → 'a@x.it, b@y.it'. Empty → None. Raises ValueError for anything that is not an address or for
+    more than MAX_RECIPIENTS: what a user types in the notification popup is checked here, not guessed at send time."""
+    parts = [p.strip() for p in re.split(r"[,;\s]+", text or "") if p.strip()]
+    if any(not is_address(p) for p in parts) or len(set(parts)) > MAX_RECIPIENTS:
+        raise ValueError("invalid recipients")
+    return ", ".join(dict.fromkeys(parts)) or None
+
+
 def clean_password(value: str) -> str:
     return re.sub(r"\s+", "", value or "")  # Google shows it in groups of four letters
 

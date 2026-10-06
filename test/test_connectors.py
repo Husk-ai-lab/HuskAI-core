@@ -13,7 +13,15 @@ import respx
 
 from app.core.automations.executor import AutomationExecutor
 from app.core.connectors.service import ConnectorProblem, changes_sends, kinds_used
-from app.data.models.automation import ActionNode, Automation, AutomationGraph, Edge, RunTrigger, TriggerNode
+from app.data.models.automation import (
+    ActionNode,
+    Automation,
+    AutomationGraph,
+    Edge,
+    NotificationNode,
+    RunTrigger,
+    TriggerNode,
+)
 from app.data.models.connector import ConnectorIn, ConnectorKind, ConnectorState
 from app.gateways.connectors import gmail, telegram
 from app.gateways.connectors.errors import ConnectorError
@@ -72,8 +80,12 @@ async def _setup_both(services) -> None:  # type: ignore[no-untyped-def]
     await services.connectors.configure(ORG, ConnectorKind.gmail, ConnectorIn(address=ADDRESS, app_password="abcd efgh ijkl mnop"))
 
 
-def _graph(action: str, **kw) -> AutomationGraph:  # type: ignore[no-untyped-def]
-    node = ActionNode(id="send", label="Invia", action=action, template="Report: {oee}", subject="Esito {oee}", **kw)
+def _graph(channel: str, recipients: str | None = None) -> AutomationGraph:
+    """trigger → one notification (`channel` desktop | telegram | gmail), or a plain log step for anything else."""
+    if channel == "log":
+        node: ActionNode | NotificationNode = ActionNode(id="send", label="Invia", action="log", template="Report: {oee}")
+    else:
+        node = NotificationNode(id="send", label="Invia", channel=channel, recipients=recipients, template="Report: {oee}", subject="Esito {oee}")
     return AutomationGraph(nodes=[TriggerNode(id="trigger", label="Manuale"), node], edges=[Edge(id="e1", source="trigger", target="send")])
 
 
@@ -263,7 +275,7 @@ async def test_runs_send_log_no_content_and_prova_stays_with_the_user(services, 
     await _setup_both(services)
     ex = AutomationExecutor(services.agent_context(ORG, USER), tmp_path)
 
-    mail = Automation(id="a1", org_id=ORG, title="Report", graph=_graph("email", target="boss@cliente.it, hr@cliente.it"))
+    mail = Automation(id="a1", org_id=ORG, title="Report", graph=_graph("gmail", recipients="boss@cliente.it, hr@cliente.it"))
     run = await ex.run(mail, RunTrigger.manual)
     assert run.status.value == "success", run.error
     entry = run.log[-1]
@@ -285,13 +297,13 @@ async def test_runs_send_log_no_content_and_prova_stays_with_the_user(services, 
 async def test_a_connector_that_is_not_set_up_skips_the_step_and_the_run_goes_on(services, tmp_path) -> None:  # type: ignore[no-untyped-def]
     login(services)
     ex = AutomationExecutor(services.agent_context(ORG, USER), tmp_path)
-    for action in ("email", "telegram"):
-        a = Automation(id=f"a_{action}", org_id=ORG, title="T", graph=_graph(action, target="x@y.it"))
+    for action in ("gmail", "telegram"):
+        a = Automation(id=f"a_{action}", org_id=ORG, title="T", graph=_graph(action, recipients="x@y.it"))
         run = await ex.run(a, RunTrigger.manual)
         assert run.status.value == "success" and run.log[-1].status == "skipped"
         assert run.log[-1].output["reason"] == "not_configured"
     await services.connectors.configure(ORG, ConnectorKind.gmail, ConnectorIn(address=ADDRESS, app_password=APP_PASSWORD))
-    a = Automation(id="a_role", org_id=ORG, title="T", graph=_graph("email", target="il responsabile acquisti"))
+    a = Automation(id="a_role", org_id=ORG, title="T", graph=_graph("gmail", recipients="il responsabile acquisti"))
     run = await ex.run(a, RunTrigger.manual)
     assert run.log[-1].status == "skipped" and run.log[-1].output["reason"] == "no_recipient"  # a role is not an address
 
@@ -301,7 +313,7 @@ async def test_a_failed_send_fails_the_run_without_leaking_and_marks_the_connect
     await services.connectors.configure(ORG, ConnectorKind.gmail, ConnectorIn(address=ADDRESS, app_password=APP_PASSWORD))
     fake_smtp.login_error = smtplib.SMTPAuthenticationError(535, b"revoked " + ADDRESS.encode())  # password changed at Google
     ex = AutomationExecutor(services.agent_context(ORG, USER), tmp_path)
-    a = Automation(id="a3", org_id=ORG, title="T", graph=_graph("email", target="boss@cliente.it"))
+    a = Automation(id="a3", org_id=ORG, title="T", graph=_graph("gmail", recipients="boss@cliente.it"))
     run = await ex.run(a, RunTrigger.manual)
     assert run.status.value == "failed" and "Gmail" in (run.error or "")
     assert ADDRESS not in str(run.model_dump()) and "boss@cliente.it" not in str(run.model_dump())
@@ -324,9 +336,9 @@ async def test_builder_is_told_which_connectors_work(services) -> None:  # type:
 
 
 def test_a_change_to_a_sending_step_is_detected() -> None:
-    before = _graph("email", target="a@b.it")
+    before = _graph("gmail", recipients="a@b.it")
     assert not changes_sends(before, before)
-    assert changes_sends(before, _graph("email", target="c@d.it"))
+    assert changes_sends(before, _graph("gmail", recipients="c@d.it"))
     assert changes_sends(_graph("log"), before)  # a step that sends was added
     assert kinds_used(before) == [ConnectorKind.gmail] and kinds_used(_graph("log")) == []
 
@@ -337,7 +349,7 @@ async def test_a_dead_connector_becomes_one_suggestion_and_closes_when_fixed(cli
     from app.data.models.automation import AutomationStatus
     from app.gateways.sqlite.repositories import AutomationRepo, SuggestionRepo
 
-    auto = Automation(id="auto_mail", org_id=ORG, title="Report settimanale", graph=_graph("email", target="boss@cliente.it"))
+    auto = Automation(id="auto_mail", org_id=ORG, title="Report settimanale", graph=_graph("gmail", recipients="boss@cliente.it"))
     AutomationRepo(services.db, ORG).save(auto, change_note="x", author="test")
     for _ in range(2):  # activating twice: still ONE suggestion for the connector
         client.post(f"/api/v1/automations/{auto.id}/status", json={"status": AutomationStatus.attiva.value})

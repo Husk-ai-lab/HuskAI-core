@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from app.data.models.automation import ActionNode, AutomationGraph
+from app.data.models.automation import AutomationGraph, NotificationNode
 from app.data.models.connector import Connector, ConnectorIn, ConnectorKind, ConnectorState
 from app.gateways.connectors import gmail, telegram
 from app.gateways.connectors.errors import ConnectorError
@@ -50,17 +50,18 @@ class SendResult:
 
 
 def kinds_used(graph: AutomationGraph) -> list[ConnectorKind]:
-    """The connectors an automation sends through, in a stable order."""
-    used = {ConnectorKind(n.action.connector) for n in graph.nodes if isinstance(n, ActionNode) and n.action.connector}
+    """The connectors an automation sends through (its notification nodes), in a stable order."""
+    used = {ConnectorKind(n.channel.connector) for n in graph.nodes if isinstance(n, NotificationNode) and n.channel.connector}
     return [k for k in KINDS if k in used]
 
 
 def changes_sends(before: AutomationGraph, after: AutomationGraph) -> bool:
-    """True when a step that sends something to people (email / Telegram) was added, changed or removed.
-    Code, not a prompt: such changes always go to the user as a proposal."""
+    """True when a notification that reaches people outside this computer (Telegram, Gmail) was added, changed,
+    switched to or from such a channel, or removed. Code, not a prompt: such changes always go to the user as a
+    proposal. A desktop notification reaches nobody else, so it does not count."""
     def sig(g: AutomationGraph) -> dict[str, tuple]:
-        return {n.id: (n.action.value, n.target, n.template, n.subject, n.attach_report)
-                for n in g.nodes if isinstance(n, ActionNode) and n.action.connector}
+        return {n.id: (n.channel.value, n.recipients, n.template, n.subject, n.attach_report)
+                for n in g.nodes if isinstance(n, NotificationNode) and n.channel.connector}
     return sig(before) != sig(after)
 
 
@@ -86,12 +87,12 @@ class ConnectorService:
         return [self.get(org_id, k) for k in KINDS]
 
     def prompt_block(self, org_id: str) -> str:
-        """For the Builder: what automations can send through, and whether each connector works right now."""
+        """For the Builder: the channels a notification node can use, and whether each works right now."""
+        lines = ["- desktop: always available — a notification on this computer (nobody else is reached)"]
         how = {
-            ConnectorKind.telegram: "action 'telegram': a message (and optionally the PDF report) to the configured Telegram chat",
-            ConnectorKind.gmail: "action 'email': an email (target = recipient address(es), subject, body, optional PDF report) from the configured Gmail account",
+            ConnectorKind.telegram: "a message (and optionally the PDF report) to the configured Telegram chat",
+            ConnectorKind.gmail: "an email to the node's recipients (address(es)), with subject and body, optionally with the PDF report, from the configured Gmail account",
         }
-        lines = []
         for c in self.status(org_id):
             state = {"ready": "ready", "error": "needs attention (the last send failed)", "not_configured": "NOT set up"}[c.state.value]
             lines.append(f"- {c.kind.value}: {state} — {how[c.kind]}")

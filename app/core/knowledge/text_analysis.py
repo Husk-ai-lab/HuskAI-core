@@ -62,3 +62,33 @@ def token_spans(text: str, lang: str = "italian") -> list[tuple[int, int, str]]:
             continue
         out.append((m.start(), m.end(), stem(w, lang)))
     return out
+
+
+# --- document language (English / Italian only, for now) ------------------------------------------------------
+# Function words that mark one language and are NOT also common words of the other ("a", "in", "per", "no" are
+# left out on purpose). Dependency-free and deterministic; unsure means English (the product default).
+_IT_MARKERS = frozenset(
+    """di il lo la gli le dei del della delle dello nel nella nei nelle sul sulla dal dalla che è sono era viene
+    vengono non una uno con per ogni anche come più tra fra alla alle agli questo questa questi queste quello
+    sia essere hanno deve devono se poi quando dove tutti tutto già ancora prima dopo mentre cui""".split()
+) - {"per"}
+_EN_MARKERS = frozenset(
+    """the and of to is are was were with for that this these those from by each every which will be been has have
+    had on at as an it its their they there when where then than not or if into over under after before while who
+    what how can should must may""".split()
+)
+_ACCENTED = re.compile(r"[àèéìòù]")
+_LETTERS = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+")
+MIN_WORDS = 15  # fewer words than this (a spreadsheet of numbers, a title): not enough to say, so English
+
+
+def detect_language(text: str) -> str:
+    """"it" or "en". Counts marker words of each language in the first 20 000 characters; Italian needs a clear
+    lead (accented vowels such as è, più, perché count a little for it). Anything unsure is "en"."""
+    sample = (text or "")[:20_000].lower()
+    words = _LETTERS.findall(sample)
+    if len(words) < MIN_WORDS:
+        return "en"
+    it = sum(w in _IT_MARKERS for w in words) + len(_ACCENTED.findall(sample)) // 3
+    en = sum(w in _EN_MARKERS for w in words)
+    return "it" if it >= 3 and it > en * 1.3 else "en"
