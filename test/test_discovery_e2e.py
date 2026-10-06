@@ -72,10 +72,10 @@ def test_discovery_resume_after_failure(client: TestClient, services) -> None:  
     state = {"fail": True}
 
     class Flaky(FakeDecisionModel):
-        async def ask(self, user_id, org_id, st, questions):  # type: ignore[no-untyped-def]
+        async def ask(self, user_id, org_id, st, questions, lang="it"):  # type: ignore[no-untyped-def]
             if "repetitive" in questions and state["fail"]:
                 raise RuntimeError("modello decisionale non disponibile")
-            return await super().ask(user_id, org_id, st, questions)
+            return await super().ask(user_id, org_id, st, questions, lang)
 
     services.decisions = Flaky()
     run = client.post("/api/v1/discovery/runs").json()["run"]

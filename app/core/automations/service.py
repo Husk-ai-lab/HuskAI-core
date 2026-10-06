@@ -33,6 +33,8 @@ class AutomationService:
         self.repo.save(a, new_version=False)
         if self.s.scheduler is not None:
             self.s.scheduler.sync(a)
+        if status == AutomationStatus.attiva:
+            self.s.connector_check(a, self.user_id)  # a connector it sends through must be alive
         return a
 
     async def run(self, automation_id: str, trigger: RunTrigger = RunTrigger.prova) -> AutomationRun:
@@ -67,6 +69,7 @@ class AutomationService:
         chats.save_proposal(p)
         if self.s.scheduler is not None:
             self.s.scheduler.sync(a)
+        self.s.connector_check(a, self.user_id)
         return p, a
 
 
@@ -75,4 +78,5 @@ async def run_automation(services, a: Automation, trigger: RunTrigger, payload: 
     executor = AutomationExecutor(ctx, services.paths.org_outputs(a.org_id))
     run = await executor.run(a, trigger, payload)
     AutomationRepo(services.db, a.org_id).save_run(run)
+    services.connector_check(a, user_id)  # a send that failed or was skipped: the connector needs attention
     return run

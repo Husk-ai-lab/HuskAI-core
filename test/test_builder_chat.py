@@ -35,16 +35,32 @@ def test_chat_edits_flow_and_versions(client: TestClient) -> None:
     view = client.get(f"/api/v1/agent/chats/automation/{a['id']}").json()
     assert view["messages"][0]["role"] == "assistant"
     assert view["suggestions"]
-    events = _send(client, view["chat"]["id"], "Avvisa anche gli Acquisti")
+    events = _send(client, view["chat"]["id"], "Alza la soglia delle anomalie")
     names = [e[0] for e in events]
-    assert "patch" in names and names[-1] == "done"
+    assert "patch" in names and "proposal" not in names and names[-1] == "done"  # normal personality: applied at once
     patched = next(d for n, d in events if n == "patch")["automation"]
-    labels = [n["label"] for n in patched["graph"]["nodes"]]
-    assert "Avvisa Acquisti" in labels
+    assert next(n for n in patched["graph"]["nodes"] if n["id"] == "anomalie")["value"] == 3
     assert patched["version"] == 2
     # undo restores the previous version
     undone = client.post(f"/api/v1/automations/{a['id']}/undo").json()
-    assert "Avvisa Acquisti" not in [n["label"] for n in undone["graph"]["nodes"]]
+    assert next(n for n in undone["graph"]["nodes"] if n["id"] == "anomalie")["value"] != 3
+
+
+def test_a_step_that_sends_is_always_a_proposal(client: TestClient) -> None:
+    """Email / Telegram steps reach people: whatever the personality, nothing is applied without the user's yes
+    (enforced in code), and an accepted step that uses a connector that is not set up becomes a suggestion."""
+    a = _discovered(client)
+    chat = client.get(f"/api/v1/agent/chats/automation/{a['id']}").json()["chat"]
+    events = _send(client, chat["id"], "Avvisa anche gli Acquisti")
+    names = [e[0] for e in events]
+    assert "proposal" in names and "patch" not in names
+    assert client.get(f"/api/v1/automations/{a['id']}").json()["automation"]["version"] == 1
+    prop = next(d for n, d in events if n == "proposal")
+    r = client.post(f"/api/v1/agent/proposals/{prop['id']}", json={"accept": True}).json()
+    assert "Avvisa Acquisti" in [n["label"] for n in r["automation"]["graph"]["nodes"]]
+    assert r["automation"]["version"] == 2
+    sug = [s for s in client.get("/api/v1/suggestions?status=all").json() if s["kind"] == "configure_connector"]
+    assert len(sug) == 1 and sug[0]["connector"] == "gmail"  # Gmail is not set up
 
 
 def test_ultra_careful_personality_proposes(client: TestClient) -> None:

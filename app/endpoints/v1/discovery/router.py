@@ -74,7 +74,8 @@ def state(cu: CurrentUser = Depends(current_user), services: Services = Depends(
 
 def _start(services: Services, cu: CurrentUser, run_id: str) -> None:
     ctx = services.agent_context(cu.org_id, cu.id)
-    orch = DiscoveryOrchestrator(ctx, services.events, lambda: services.maintenance.blocking)
+    orch = DiscoveryOrchestrator(ctx, services.events, lambda: services.maintenance.blocking,
+                                 on_draft=lambda a: services.connector_check(a, cu.id))
     services.spawn(f"discovery:{cu.org_id}", orch.execute(run_id))
 
 

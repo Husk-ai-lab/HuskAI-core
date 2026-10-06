@@ -16,7 +16,7 @@ export default defineConfig({
     fs: { allow: [".", locales] },
     proxy: {
       "/api": { target: backend, changeOrigin: false },
-      "/auth": { target: backend, changeOrigin: false },
+      "/callback": { target: backend, changeOrigin: false },
       "/health": { target: backend, changeOrigin: false },
     },
   },

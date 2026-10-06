@@ -98,19 +98,27 @@ class ActionType(StrEnum):
     pdf_report = "pdf_report"
     notify = "notify"
     log = "log"
-    email = "email"  # simulated in this phase
+    email = "email"  # sent through the Gmail connector
+    telegram = "telegram"  # sent through the Telegram connector
     erp_update = "erp_update"  # simulated in this phase
 
     @property
     def simulated(self) -> bool:
-        return self in (ActionType.email, ActionType.erp_update)
+        return self == ActionType.erp_update
+
+    @property
+    def connector(self) -> str | None:
+        """The connector this action sends through (telegram | gmail), if any."""
+        return {ActionType.email: "gmail", ActionType.telegram: "telegram"}.get(self)
 
 
 class ActionNode(_NodeBase):
     kind: Literal["action"] = "action"
     action: ActionType = ActionType.log
-    target: str | None = Field(None, max_length=200)  # folder, recipient role, ERP entity
+    target: str | None = Field(None, max_length=200)  # folder, ERP entity, or (email) the recipient address(es)
     template: str | None = Field(None, max_length=4000)  # message/report body with {placeholders}
+    subject: str | None = Field(None, max_length=200)  # email subject, with {placeholders}
+    attach_report: bool = False  # email/telegram: attach the PDF made by an earlier pdf_report step
 
 
 Node = Annotated[

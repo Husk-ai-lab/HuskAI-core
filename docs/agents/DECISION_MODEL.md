@@ -22,15 +22,15 @@ class DecisionModel(Protocol):
 - **Answer:** `p` (noul), `choice` + `probabilities` (choice), `score` = expected level position + `probabilities` (score), `confidence`.
 - **One state, many questions:** all questions are answered against the same state in parallel, so a whole network costs one request.
 
-## Jev on Venice (`app/gateways/decisions/jev.py`)
+## Through husk-gateway (`app/gateways/gateway/decisions.py`)
 
-- **Call:** `POST https://api.venice.ai/api/v1/decisions` with `{model: "jev-latest", state, questions: {id: {type, instructions, criteria}}}`, `Authorization: Bearer <Venice key>`.
-- **Batching:** batches of ≤ 64 questions, sent in parallel; 20 s timeout and one retry.
-- **Errors:** 402 → `errors.decisions_quota`; 401/403 → `errors.ai_key_venice_rejected`.
-- **Metering:** `usage.input_tokens` per step and model (`jev-latest`) and in `token_usage`.
-- **Pricing and speed:** you pay for input tokens only (~$0.042 per million). Measured: **0.46 s** for 3 questions; **1.6 s** to link 30 documents (120 pairs); **0.6 s** to assess 9 networks.
-- **Keys:** the Venice part of the user's combined key (see below), or `VENICE_API_KEY` in `.env` for development.
-- **Beta:** schemas may change without notice. Keep the request building in this one file.
+- **Call:** `POST {gateway}/v1/decide` with `{state, lang, model, questions: [{id, type: choice|score, options, text}]}`, `Authorization: Bearer <Clerk access token>`. The answer is `{id: {answer, p, probabilities}}`. The gateway calls Venice with one forward pass per question.
+- **Adapter** (pure functions, unit-tested): `noul` → a `choice` over its two criteria texts (`p` = probability of the "true" one); `choice` → options are the criteria descriptions, mapped back to the keys; `score` → the gateway's `score` type when it has the 10 bands it calibrates for (repetitiveness), otherwise a `choice` over the level labels (the 8 hour buckets). In every case `Answer.probabilities` is keyed by level index, so the Explorer's expected-value maths is unchanged.
+- **Limits handled:** ≤ 16 questions per request (batches run in parallel), `state` ≤ 12 000 characters (long summaries are shortened evenly, aliases and titles kept), 60 requests/minute/user (client-side rate gate shared with chat).
+- **Model:** `jev-latest` (`config.DECISION_MODEL`). Jev is served by Venice's own **`POST /api/v1/decisions`** endpoint (typed `noul`/`choice`/`score` questions answered together over one state), **not** by chat completions. The gateway must call that endpoint for Jev: if it calls `/chat/completions` with logprobs, Venice refuses (the gateway answers 502 "decision provider rejected the request") and per-question fan-out then trips Venice's rate limit (429). Oct 6: this is exactly what the first live run showed. **The gates (`gate_related`, `gate_deeper`, `gate_repetitive`) were tuned on Jev.**
+- **Errors:** 401 → sign in again; 403 → installation not active; 429/5xx → `errors.gateway_busy` / `errors.gateway_unavailable`.
+- **Metering:** the gateway meters decisions itself and returns no token counts; the local per-run report estimates them (≈ 4 characters per token in, one token out per question).
+- **Benchmarks** can still call Venice directly (`benchmarks/direct.py`, key from `.env`): the product never does.
 
 ## The decisions discovery asks (`app/gateways/decisions/questions.py`)
 
@@ -56,16 +56,14 @@ The state is always **document cards** (see [EXPLORER_AGENT.md](EXPLORER_AGENT.m
 
 It is plain text, not JSON, and about 7–10k tokens for 30 documents.
 
-## Keys
+## Credentials
 
-- **One string after login:** `<Regolo key><VENICE_INFERENCE_KEY_…>`, split by regex in `key_store.split_keys`.
-- **Verification:** Regolo `/models` and Venice `/models` (free); saved only if both pass.
-- **Storage:** `user_ai_keys.decision_key` / `decision_hint` (migration 007). Never returned, never logged, stripped from backups, deleted on sign-out.
+None on this computer: the request carries the user's Clerk access token; the gateway holds the Venice key.
 
 ## Data protection
 
 - The decision model receives **card text** (sentences, summaries, signals), never files.
-- The upload authorisation and the key screen name both providers (GDPR guide G3).
+- The upload authorisation names both providers and the gateway (GDPR guide G3).
 - Venice AI states that it does not retain prompts.
 
 ## Moving to Serenity

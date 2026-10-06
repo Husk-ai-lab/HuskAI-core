@@ -15,6 +15,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
+from app.gateways.gateway.errors import raise_if_gateway
 from app.helpers.logging import get_logger
 
 log = get_logger("agent.loop")
@@ -46,7 +47,11 @@ async def run_tool_loop(
     history = list(messages)
     calls: list[dict[str, Any]] = []
     for i in range(max_iterations):
-        ai: AIMessage = await bound.ainvoke(history, config=config)  # type: ignore[assignment]
+        try:
+            ai: AIMessage = await bound.ainvoke(history, config=config)  # type: ignore[assignment]
+        except Exception as exc:
+            raise_if_gateway(exc)
+            raise
         history.append(ai)
         if not ai.tool_calls:
             return LoopResult(text=_text(ai), messages=history, tool_calls=calls, iterations=i + 1)
@@ -68,9 +73,11 @@ async def run_tool_loop(
             calls.append({"name": name, "args": args, "ok": not content.startswith("ERROR")})
             history.append(ToolMessage(content=content, tool_call_id=tc["id"], name=name))
     # cap reached: ask for a final answer without tools
-    final = await model.ainvoke(
-        history + [_nudge()], config=config
-    )
+    try:
+        final = await model.ainvoke(history + [_nudge()], config=config)
+    except Exception as exc:
+        raise_if_gateway(exc)
+        raise
     history.append(final)
     return LoopResult(text=_text(final), messages=history, tool_calls=calls, iterations=max_iterations, stopped_by_cap=True)
 

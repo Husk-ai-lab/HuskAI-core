@@ -15,9 +15,19 @@ _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"\+?\d[\d\s]{7,}\d")
 _IBAN = re.compile(r"\bIT\d{2}[A-Z]\d{10}[0-9A-Z]{12}\b", re.I)
 _CF = re.compile(r"\b[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]\b", re.I)
+# credentials that can end up in a URL or a header: Telegram bot tokens (in every Bot API URL), OAuth query
+# parameters, bearer tokens and JWTs
+_BOT_TOKEN = re.compile(r"\bbot\d{6,}:[\w-]{20,}")
+_OAUTH_PARAM = re.compile(r"([?&](?:code|state|access_token|refresh_token|id_token|token)=)[^&\s\"']+", re.I)
+_BEARER = re.compile(r"\bBearer\s+[\w.~+/=-]{8,}", re.I)
+_JWT = re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+")
 
 
 def scrub(text: str) -> str:
+    text = _BOT_TOKEN.sub("bot<token>", text)
+    text = _OAUTH_PARAM.sub(r"\1<redacted>", text)
+    text = _BEARER.sub("Bearer <token>", text)
+    text = _JWT.sub("<jwt>", text)
     for pattern, repl in ((_EMAIL, "<email>"), (_IBAN, "<iban>"), (_CF, "<cf>"), (_PHONE, "<phone>")):
         text = pattern.sub(repl, text)
     return text
@@ -25,8 +35,11 @@ def scrub(text: str) -> str:
 
 class ScrubFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            record.msg = scrub(record.msg)
+        try:  # the arguments too: libraries log URLs and headers through %s placeholders
+            record.msg, record.args = scrub(record.getMessage()), ()
+        except Exception:
+            if isinstance(record.msg, str):
+                record.msg = scrub(record.msg)
         return True
 
 
@@ -35,6 +48,9 @@ def configure_logging(log_dir: Path, level: str = "INFO") -> None:
     if getattr(root, "_husk_configured", False):
         return
     root.setLevel(level)
+    # httpx logs every request URL at INFO: Telegram's contains the bot token, OAuth redirects carry codes.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     console = logging.StreamHandler()
     console.setFormatter(fmt)

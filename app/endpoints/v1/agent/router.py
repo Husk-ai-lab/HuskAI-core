@@ -187,6 +187,7 @@ async def send_message(chat_id: str, body: ChatRequest, cu: CurrentUser = Depend
                     saved = autos.save(automation, change_note=body.content[:200], author="builder")
                     if services.scheduler:
                         services.scheduler.sync(saved)
+                    services.connector_check(saved, cu.id)
                     meta["version"] = saved.version
                     await emit("patch", {"automation": saved.model_dump(mode="json")})
             msg = chats.add_message(ChatMessage(id=new_id("msg"), chat_id=chat.id, role=MessageRole.assistant,

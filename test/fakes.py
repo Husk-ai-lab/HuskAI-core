@@ -56,21 +56,8 @@ class FakeProvider:
         self.models_used: list[str] = []
         self.efforts: list[str | None] = []
 
-    @property
-    def configured(self) -> bool:
-        return True
-
-    def key_for(self, user_id: str | None) -> str | None:
-        return "scripted-key"
-
     def configured_for(self, user_id: str) -> bool:
         return True
-
-    async def resolve_model(self, api_key: str | None = None) -> str:
-        return self.model_name
-
-    async def list_models(self, api_key: str) -> list[str]:
-        return [self.model_name]
 
     def chat_model(self, usage: Any = None, temperature: float | None = None, model: str | None = None,
                    reasoning: str | None = None, max_tokens: int | None = None,
@@ -204,16 +191,10 @@ class FakeDecisionModel:
         self.configured = configured
         self.calls: list[dict] = []
 
-    def key_for(self, user_id: str | None) -> str | None:
-        return "fake-venice-key" if self.configured else None
-
     def configured_for(self, user_id: str) -> bool:
         return self.configured
 
-    async def verify(self, key: str) -> None:
-        return None
-
-    async def ask(self, user_id: str, org_id: str, state: str, questions: dict):  # type: ignore[no-untyped-def]
+    async def ask(self, user_id: str, org_id: str, state: str, questions: dict, lang: str = "it"):  # type: ignore[no-untyped-def]
         from app.core.metering import current_meters
         from app.gateways.decisions.base import Answer
 

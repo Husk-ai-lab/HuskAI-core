@@ -23,14 +23,19 @@ def isolated_services(live: bool) -> Services:
     data = Path(tempfile.mkdtemp(prefix="husk-bench-"))
     overrides = {"HUSK_ENV": "test", "HUSK_DATA_DIR": data, "NEON_DATA_API_URL": None,
                  "HUSK_STUDIO_UI_URL": "http://127.0.0.1:9"}
-    if not live:
-        overrides["REGOLO_API_KEY"] = None
-    svc = build_services(Settings(**overrides))
-    if not live:
+    settings = Settings(**overrides)
+    svc = build_services(settings)
+    if live:  # benchmarks only: direct Regolo.ai + Venice with keys from .env (the product uses husk-gateway)
+        from benchmarks.direct import live_services
+
+        live_services(svc, settings, key_name="REGOLO_API_KEY", base_url="https://api.regolo.ai/v1",
+                      model="gpt-oss-120b", summary_model="gpt-oss-20b")
+    else:
         # Offline: the scripted model exercises the pipeline deterministically (no AI quality claims).
-        from test.fakes import FakeProvider
+        from test.fakes import FakeDecisionModel, FakeProvider
 
         svc.llm = FakeProvider()  # type: ignore[assignment]
+        svc.decisions = FakeDecisionModel()  # type: ignore[assignment]
     UserRepo(svc.db).upsert(User(id=USER, org_id=ORG, org_name="Officine Esempio (fittizia)"))
     return svc
 

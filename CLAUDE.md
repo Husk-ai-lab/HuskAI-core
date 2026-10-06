@@ -4,14 +4,14 @@ Read this first. Company context lives in `Company_memory/` (read `Company_memor
 
 ## What this repo is
 
-The plain **Husk** product: FastAPI + React (Vite) on `127.0.0.1`, ZITADEL login (login only), local knowledge base (MarkItDown + BM25s), discovery with internal LangChain agents (Husk Op → Explorer + Builder), automations edited **only** through the Builder and run **only locally**. Out of scope: Tauri shell, Husk Studio, husk-gateway, Serenity API, Stripe, Fly.io.
+The plain **Husk** product: FastAPI + React (Vite) on `127.0.0.1` (a native webview or a browser), Clerk login (login only, system browser + PKCE), all AI through **husk-gateway**, local knowledge base (MarkItDown + BM25s), discovery with internal LangChain agents (Husk Op → Explorer + Builder), automations edited **only** through the Builder and run **only locally**; they can send messages, emails and reports through **connectors** (Telegram, Gmail). Out of scope: the Tauri shell (it never logs in), Husk Studio, the gateway's own code (this app is only its client), Serenity API, Stripe, Fly.io.
 
 ## Map
 
 - `app/main.py` app factory · `app/config.py` public config · `app/i18n` messages (en/it) · `app/endpoints/v1/{user,documents,discovery,automations,agent,suggestions}` API
 - `app/data/models` domain models · `app/data/neon` husk-core models (exact plan schema)
-- `app/gateways/{sqlite,zitadel,regolo,decisions,neon,studio}` external I/O (`decisions/`: the decision model, Venice Jev now)
-- `app/core/knowledge` (BM25, `tabular/` data tools, `memory/` harness) · `app/core/agents/{harness,explorer,builder}` + `orchestrator.py` · `app/core/automations` · `app/core/suggestions` (after uploads/deletes)
+- `app/gateways/{sqlite,clerk,gateway,connectors,decisions,neon,studio}` external I/O (`clerk/`: login + tokens; `gateway/`: husk-gateway client, LLM provider, decision adapter; `connectors/`: Telegram + Gmail; `decisions/`: the decision-model interface and the questions discovery asks)
+- `app/core/connectors` (connector service: status, verify, send) · `app/core/knowledge` (BM25, `tabular/` data tools, `memory/` harness) · `app/core/agents/{harness,explorer,builder}` + `orchestrator.py` · `app/core/automations` · `app/core/suggestions` (after uploads/deletes)
 - `app/core/metering.py` tokens per step/model · `app/frontend` React UI · `test/` pytest · `benchmarks/` (`bench_discovery_tokens.py`: live/offline discovery benchmark) · `installer.py` · `docs/` (`docs/agents/` agent architecture)
 
 ## Hard rules
@@ -24,10 +24,10 @@ The plain **Husk** product: FastAPI + React (Vite) on `127.0.0.1`, ZITADEL login
 6. **Harness invariants are code, not prompts:** company profile ≤ 30 facts (side facts replace weaker ones only when judged better); notes always complete, validated, rewritten whole, and backed by evidence (a passage + quote, or a computed spreadsheet fact from the document card). Discovery explores document cards first and goes deeper only where confidence is low: see `docs/agents/EXPLORER_AGENT.md`.
 7. **GDPR:** no personal data or document text in logs; synthetic fixtures only; UI copy must stay accurate (GDPR guide G3).
 8. Docs in English. **All user-facing text goes through `app/i18n`** (EN default + IT): `t()` / `api_error()` / `LocalizedError` in Python, `useT()` in React. Add every key to both `locales/en.json` and `it.json`; tests and the no-hard-coded-text guard enforce it. See `docs/I18N.md`.
-9. **Public config** (ZITADEL issuer/client id, Regolo base URL + default model, Neon Data API URL, languages) lives in the committed `app/config.py`. **Secrets only in `.env`** (git-ignored); never bundle `.env` in builds.
-10. **AI key** (simplified BYOK): ONE string = Regolo key + Venice key (`…VENICE_INFERENCE_KEY_…`), split by regex; saved per user in `user_ai_keys` ONLY after Regolo.ai AND Venice AI accept their part; **deleted on sign-out**; changeable/removable in Settings; never returned by the API (hint only), never logged, always stripped from backups. Every AI path must use the caller's key (`LLMProvider.key_for(user_id)`).
+9. **Public config** (Clerk issuer + client id, husk-gateway URL, default models, Neon Data API URL, languages) lives in the committed `app/config.py`. **Secrets only in `.env`** (git-ignored); never bundle `.env` in builds. The app itself needs no secret at all.
+10. **No AI key on the machine.** Every AI call goes through husk-gateway (`gateways/gateway/`) with the signed-in user's Clerk access token as Bearer; the gateway holds the Regolo.ai and Venice keys, checks that the organisation has paid and meters usage. The refresh token lives in the OS keychain (`gateways/clerk/tokens.py`), access tokens in memory: never in SQLite, logs or backups. Every AI path uses `LLMProvider` / `DecisionModel` (a direct provider exists only in `benchmarks/direct.py`). **Connector secrets** (Telegram bot token, Gmail App Password) live in the OS keychain only, survive sign-out, are removable in Settings, and never appear in SQLite, API responses, logs or backups; connector calls never log or store an address, a chat id, a message or an exception text. A step that sends to people (email / Telegram) is **always** a Builder proposal, enforced in code (`changes_sends`).
 11. **Suggestions never change anything by themselves.** Modify suggestions go through the Builder chat as *suggestion messages* (stricter `SUGGESTION_RULES`, tagged, always a proposal). Evidence is validated in code. See `docs/HARNESS.md`.
-12. **Discovery decisions go through the decision-model interface** (`gateways/decisions/base.py`): links, relation types, repetitiveness, hours and depth are typed decisions with gates (uncertain = no), never LLM text. The LLM only writes cards, briefs and drafts. Max 50 documents per organisation (hard cap). See `docs/agents/DECISION_MODEL.md`.
+12. **Discovery decisions go through the decision-model interface** (`gateways/decisions/base.py`, served by husk-gateway `/v1/decide` via `gateways/gateway/decisions.py`): links, relation types, repetitiveness, hours and depth are typed decisions with gates (uncertain = no), never LLM text. The LLM only writes cards, briefs and drafts. Max 50 documents per organisation (hard cap). See `docs/agents/DECISION_MODEL.md`.
 
 ## Commands
 

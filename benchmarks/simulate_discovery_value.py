@@ -34,10 +34,6 @@ async def run(live: bool, scale: int = 1) -> dict:
     folder = Path(__file__).parent / "datasets" / "generated" / f"scale{scale}"
     gt = json.loads(generate(folder, seed=7, scale=scale).to_json())
     svc = isolated_services(live=live)
-    if live:
-        await svc.llm.resolve_model()  # type: ignore[attr-defined]
-        if not svc.llm.configured:
-            raise SystemExit("REGOLO_API_KEY mancante nel file .env")
     docs = load_dataset(svc, folder)
     orch = DiscoveryOrchestrator(svc.agent_context(ORG, USER), svc.events)
     run_ = orch.create_run(USER)

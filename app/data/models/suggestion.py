@@ -21,6 +21,7 @@ class SuggestionKind(StrEnum):
     memory_update = "memory_update"
     source_deleted = "source_deleted"
     run_discovery = "run_discovery"
+    configure_connector = "configure_connector"  # a connector the automations use is not set up or stopped working
 
 
 class SuggestionStatus(StrEnum):
@@ -51,6 +52,7 @@ class Suggestion(OrgScoped):
     evidence: list[SuggestionEvidence] = Field(default_factory=list)
     confidence: float = Field(1.0, ge=0, le=1)
     hours_per_week: float | None = Field(None, ge=0, le=80)  # new_automation estimate
+    connector: str | None = None  # configure_connector: which one (telegram | gmail)
     created_by: str | None = None  # user whose upload/delete started it
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

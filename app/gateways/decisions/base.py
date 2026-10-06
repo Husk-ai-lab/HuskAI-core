@@ -1,5 +1,5 @@
-"""The decision-model interface discovery depends on. Any System 1 model (Venice Jev today, Husk AI's
-Serenity tomorrow) implements `DecisionModel.ask`; discovery code never sees the provider."""
+"""The decision-model interface discovery depends on. Any System 1 model (reached through husk-gateway:
+Venice today, Husk AI's Jev/Serenity tomorrow) implements `DecisionModel.ask`; discovery code never sees the provider."""
 
 from __future__ import annotations
 
@@ -37,4 +37,5 @@ class DecisionModel(Protocol):
 
     def configured_for(self, user_id: str) -> bool: ...
 
-    async def ask(self, user_id: str, org_id: str, state: str, questions: dict[str, Question]) -> dict[str, Answer]: ...
+    async def ask(self, user_id: str, org_id: str, state: str, questions: dict[str, Question],
+                  lang: str = "it") -> dict[str, Answer]: ...

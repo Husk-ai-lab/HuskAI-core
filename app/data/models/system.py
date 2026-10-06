@@ -52,9 +52,8 @@ class StudioStatus(HuskModel):
 
 class SystemStatus(HuskModel):
     version: str
-    llm_configured: bool
     llm_model: str | None
-    zitadel_configured: bool
+    login_configured: bool
     neon_configured: bool
     maintenance: MaintenanceStatus
     release: ReleaseNotice

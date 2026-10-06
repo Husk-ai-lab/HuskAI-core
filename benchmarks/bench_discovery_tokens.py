@@ -61,34 +61,19 @@ STOP = {"della", "delle", "degli", "dalla", "nelle", "sulle", "with", "from", "t
         "sono", "viene", "vengono", "anche", "the", "and", "per", "dei", "con", "una", "uno"}
 
 
-def env_value(name: str) -> str | None:
-    env = ROOT / ".env"
-    if not env.exists():
-        return None
-    for line in env.read_text(encoding="utf-8").splitlines():
-        if line.strip().startswith(f"{name}="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'") or None
-    return None
-
-
 def build(live: bool, provider: str) -> Any:
     data = Path(tempfile.mkdtemp(prefix="husk-bench-disc-"))
     overrides: dict[str, Any] = {"HUSK_ENV": "test", "HUSK_DATA_DIR": data, "NEON_DATA_API_URL": None,
-                                 "ZITADEL_ISSUER": None, "ZITADEL_CLIENT_ID": None,
+                                 "CLERK_ISSUER": None, "CLERK_CLIENT_ID": None,
                                  "HUSK_STUDIO_UI_URL": "http://127.0.0.1:9", "HUSK_STUDIO_MCP_URL": "http://127.0.0.1:9/mcp"}
-    if live:
+    settings = Settings(**overrides)
+    svc = build_services(settings)
+    if live:  # benchmarks only: direct providers with keys from .env (the product goes through husk-gateway)
+        from benchmarks.direct import live_services
+
         p = PROVIDERS[provider]
-        key = env_value(p["key"])
-        if not key:
-            raise SystemExit(f"{p['key']} is missing from .env")
-        overrides |= {"REGOLO_API_KEY": key, "REGOLO_BASE_URL": p["base_url"], "REGOLO_MODEL": p["model"],
-                      "HUSK_SUMMARY_MODEL": p["summary"], "VENICE_API_KEY": env_value("VENICE_API_KEY")}
-        if not overrides["VENICE_API_KEY"]:
-            raise SystemExit("VENICE_API_KEY is missing from .env (decision model)")
+        live_services(svc, settings, key_name=p["key"], base_url=p["base_url"], model=p["model"], summary_model=p["summary"])
     else:
-        overrides["REGOLO_API_KEY"] = None
-    svc = build_services(Settings(**overrides))
-    if not live:
         from test.fakes import FakeDecisionModel, FakeProvider
 
         svc.llm = FakeProvider(estimate=True, summary_model="gpt-oss-20b (simulated)")  # type: ignore[assignment]

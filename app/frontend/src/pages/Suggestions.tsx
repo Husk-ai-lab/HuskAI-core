@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, FileX, Lightbulb, Plus, Search, Wrench, X } from "lucide-react";
+import { ArrowRight, BookOpen, FileX, Lightbulb, Plug, Plus, Search, Wrench, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -9,6 +9,7 @@ import { StudioAdviceCard } from "../components/StudioCard";
 import { TopBar } from "../components/TopBar";
 import { useI18n } from "../i18n";
 import { fmtDateTime, hoursValue } from "../lib/format";
+import { useConnectors } from "../lib/connectors";
 import { useAutomations, useDocuments, useSuggestions, useSuggestionSummary } from "../lib/hooks";
 import { useNotify } from "../lib/notifications";
 
@@ -21,6 +22,7 @@ const KIND_ICON: Record<SuggestionKind, ReactNode> = {
   memory_update: <BookOpen size={18} />,
   source_deleted: <FileX size={18} />,
   run_discovery: <Search size={18} />,
+  configure_connector: <Plug size={18} />,
 };
 
 export const suggestionEditorPath = (s: Suggestion) => `/automazioni/${s.automation_id}?suggestion=${s.id}`;
@@ -48,6 +50,7 @@ function SuggestionCard({ s, highlight }: { s: Suggestion; highlight: boolean })
   const notify = useNotify();
   const { data: docs } = useDocuments();
   const { data: autos } = useAutomations();
+  const { data: connectors } = useConnectors();
   const [busy, setBusy] = useState(false);
   const [profile, setProfile] = useState(false);
   const docName = (id: string) => docs?.find((d) => d.id === id)?.filename ?? id;
@@ -95,7 +98,7 @@ function SuggestionCard({ s, highlight }: { s: Suggestion; highlight: boolean })
         ))}
         <div className="row-meta">
           {automation && <Link to={`/automazioni/${automation.id}`}>{t("suggestions.automation", { title: automation.title })}</Link>}
-          {s.document_ids.length > 0 && s.kind !== "run_discovery" && s.kind !== "source_deleted" && (
+          {s.document_ids.length > 0 && s.kind !== "run_discovery" && s.kind !== "source_deleted" && s.kind !== "configure_connector" && (
             <span>{t("suggestions.sources", { documents: s.document_ids.slice(0, 3).map(docName).join(", ") })}</span>
           )}
           {s.hours_per_week ? <span>{t("suggestions.hours", { hours: hoursValue(s.hours_per_week) })}</span> : null}
@@ -120,6 +123,11 @@ function SuggestionCard({ s, highlight }: { s: Suggestion; highlight: boolean })
               <button className="btn sm" onClick={() => setProfile(true)}>{t("suggestions.action_view_memory")}</button>
               <button className="btn sm primary" onClick={() => call(`/api/v1/suggestions/${s.id}/apply`)} disabled={busy}>{t("suggestions.action_ok")}</button>
             </>
+          )}
+          {s.kind === "configure_connector" && s.connector && (
+            <button className="btn sm primary" onClick={() => nav(`/impostazioni?connector=${s.connector}`)}>
+              {t(connectors?.find((c) => c.kind === s.connector)?.state === "error" ? "suggestions.connector_fix_action" : "suggestions.connector_action")} <ArrowRight size={13} />
+            </button>
           )}
           {s.kind === "run_discovery" && (
             <button className="btn sm primary" onClick={async () => { await call(`/api/v1/suggestions/${s.id}/apply`); nav("/discovery"); }}>

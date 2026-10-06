@@ -101,12 +101,12 @@ class ExplorerAgent:
         state = self.cards_state(cards, alias_of)
         pairs = self.candidate_pairs(cards, alias_of)
         related = await ctx.decisions.ask(ctx.user_id, ctx.org_id, state,
-                                          {f"rel_{a}_{b}": q.doc_related(a, b, lang) for a, b in pairs}) if pairs else {}
+                                          {f"rel_{a}_{b}": q.doc_related(a, b, lang) for a, b in pairs}, lang=lang) if pairs else {}
         gate = ctx.settings.gate_related
         kept = [(a, b, related[f"rel_{a}_{b}"].p or 0.0) for a, b in pairs
                 if f"rel_{a}_{b}" in related and (related[f"rel_{a}_{b}"].p or 0.0) >= gate]
         types = await ctx.decisions.ask(ctx.user_id, ctx.org_id, state,
-                                        {f"type_{a}_{b}": q.relation_type(a, b, lang) for a, b, _ in kept}) if kept else {}
+                                        {f"type_{a}_{b}": q.relation_type(a, b, lang) for a, b, _ in kept}, lang=lang) if kept else {}
         edges = [{"a": a, "b": b, "p": round(p, 3), "type": (types[f"type_{a}_{b}"].choice if f"type_{a}_{b}" in types else None)}
                  for a, b, p in kept]
         groups = _components(edges, list(by_alias), max_size=ctx.settings.max_network_docs)
@@ -141,7 +141,7 @@ class ExplorerAgent:
             state = self.cards_state(members, alias_of) + (f"\nLinks:\n{links}" if links else "")
             questions = {"repetitive": q.repetitiveness(lang), "hours": q.hours_wasted(lang)}
             questions |= {f"deeper_{a}": q.needs_deeper_research(a, lang) for a in info["docs"]}
-            ans = await ctx.decisions.ask(ctx.user_id, ctx.org_id, state, questions)
+            ans = await ctx.decisions.ask(ctx.user_id, ctx.org_id, state, questions, lang=lang)
             rep = q.score_value(ans["repetitive"].probabilities) if "repetitive" in ans else 0.0
             hours, spread = q.expected_hours_per_week(ans["hours"].probabilities) if "hours" in ans else (0.0, 0.0)
             deeper = [a for a in info["docs"] if (ans.get(f"deeper_{a}") and (ans[f"deeper_{a}"].p or 0) >= ctx.settings.gate_deeper)]

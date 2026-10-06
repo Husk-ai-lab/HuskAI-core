@@ -18,7 +18,7 @@ class CoreOrganization(NeonModel):
     """core.organizations — written by the Stripe webhook (and Husk's id upsert)."""
 
     __table__ = "core.organizations"
-    id: str  # ZITADEL org
+    id: str  # Clerk organisation id
     stripe_customer_id: str | None = None  # unique
     name: str | None = None
     created_at: datetime | None = None
@@ -29,7 +29,7 @@ class CoreUser(NeonModel):
     """core.users — ids only, no email or name."""
 
     __table__ = "core.users"
-    id: str  # ZITADEL user
+    id: str  # Clerk user id
     org_id: str
     role: str
     created_at: datetime | None = None

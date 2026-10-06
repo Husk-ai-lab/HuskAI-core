@@ -8,7 +8,7 @@ Python 3.11–3.13 with **uv**, Node.js 20+.
 
 ```bash
 uv sync                               # backend deps (dev group included)
-cp .env.example .env                  # optional: overrides of app/config.py, dev REGOLO_API_KEY
+cp .env.example .env                  # optional: overrides of app/config.py (no AI key needed: AI goes through husk-gateway)
 cd app/frontend && npm install && cd ../..
 ```
 

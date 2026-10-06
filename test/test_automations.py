@@ -80,7 +80,7 @@ async def test_executor_prova_runs_locally(services, tmp_path) -> None:  # type:
     assert run.status.value == "success", run.error
     by_node = {e.node_id: e for e in run.log}
     assert by_node["anomalie"].output["outcome"] == "vero"  # fake agent found 2 anomalies
-    assert by_node["avvisa"].status == "simulated"  # email is simulated in this phase
+    assert by_node["avvisa"].status == "skipped"  # email goes through the Gmail connector: not set up → skipped, run goes on
     assert "archivia" not in by_node  # the other branch did not run
 
 

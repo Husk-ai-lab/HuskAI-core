@@ -134,10 +134,10 @@ async def apply(suggestion_id: str, cu: CurrentUser = Depends(current_user),
                 services: Services = Depends(get_services)) -> ApplyResult:
     s = _get_open(services, cu.org_id, suggestion_id)
     repo = SuggestionRepo(services.db, cu.org_id)
-    if s.kind in (SuggestionKind.memory_update, SuggestionKind.run_discovery):
+    if s.kind in (SuggestionKind.memory_update, SuggestionKind.run_discovery, SuggestionKind.configure_connector):
         return ApplyResult(suggestion=repo.set_status(s.id, SuggestionStatus.applied))  # type: ignore[arg-type]
     if s.kind == SuggestionKind.new_automation:
-        await llm_ready(cu, services)
+        llm_ready(cu, services)
         not_in_maintenance(services)
         try:
             auto = await SuggestionEngine(services, cu.org_id, cu.id).create_draft(s)

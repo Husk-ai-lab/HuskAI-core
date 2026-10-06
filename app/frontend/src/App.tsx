@@ -3,19 +3,21 @@ import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { api } from "./api/client";
+import { ConnectorsWelcome } from "./components/ConnectorsWelcome";
 import { MaintenanceAlert } from "./components/MaintenanceAlert";
 import { I18nProvider, isLang, useI18n } from "./i18n";
-import { useAiKey, useMe, useSystem } from "./lib/hooks";
+import { useEntitlement, useMe, useSystem } from "./lib/hooks";
 import { NotificationsProvider } from "./lib/notifications";
 import { SUGGESTIONS_PATH } from "./lib/suggestions";
 import { ThemeProvider, useTheme } from "./lib/theme";
-import { AiKeySetup } from "./pages/AiKeySetup";
+import { AuthDone } from "./pages/AuthDone";
 import { AutomationEditor } from "./pages/AutomationEditor";
 import { Automations } from "./pages/Automations";
 import { Discovery } from "./pages/Discovery";
 import { Knowledge } from "./pages/Knowledge";
 import { Login } from "./pages/Login";
 import { MaintenanceScreen } from "./pages/Maintenance";
+import { NotEntitled } from "./pages/NotEntitled";
 import { Settings } from "./pages/Settings";
 import { Suggestions } from "./pages/Suggestions";
 
@@ -24,7 +26,7 @@ const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000, refe
 function Gate() {
   const { data: sys } = useSystem();
   const { data: me, isLoading, isError } = useMe();
-  const { data: aiKey, isLoading: keyLoading } = useAiKey(!!me);
+  const { data: ent, isLoading: entLoading } = useEntitlement(!!me);
   const { setTheme } = useTheme();
   const { setLang } = useI18n();
   const loc = useLocation();
@@ -32,9 +34,9 @@ function Gate() {
     if (me) setTheme(me.settings.theme, false);
   }, [me, setTheme]);
   useEffect(() => {
-    // Once the first-access screen is done, the user's saved language wins over browser detection.
-    if (me && aiKey?.configured && isLang(me.settings.language)) setLang(me.settings.language);
-  }, [me, aiKey?.configured, setLang]);
+    // After sign-in the user's saved language wins over browser detection.
+    if (me && isLang(me.settings.language)) setLang(me.settings.language);
+  }, [me, setLang]);
   useEffect(() => {
     const onUnauth = () => qc.invalidateQueries({ queryKey: ["me"] });
     window.addEventListener("husk:unauthorized", onUnauth);
@@ -47,18 +49,19 @@ function Gate() {
     if (loc.pathname !== "/accesso") return <Navigate to="/accesso" replace />;
     return <><Login /><MaintenanceAlert /></>;
   }
-  if (keyLoading) return <div className="fullscreen"><div className="spinner" /></div>;
-  if (!aiKey?.configured) {
+  if (entLoading) return <div className="fullscreen"><div className="spinner" /></div>;
+  if (ent?.allowed === false) {
     const logout = async () => {
-      const r = await api.post<{ end_session_url?: string | null }>("/api/v1/user/auth/logout");
+      await api.post("/api/v1/user/auth/logout");
       qc.clear();
-      window.location.href = r.end_session_url || "/accesso";
+      window.location.href = "/accesso";
     };
-    return <><AiKeySetup onLogout={logout} /><MaintenanceAlert /></>;
+    return <><NotEntitled status={ent.status} onLogout={logout} /><MaintenanceAlert /></>;
   }
   return (
     <>
     <MaintenanceAlert />
+    <ConnectorsWelcome />
     <Routes>
       <Route path="/accesso" element={<Navigate to="/" replace />} />
       <Route element={<Layout />}>
@@ -83,7 +86,10 @@ export default function App() {
         <ThemeProvider>
           <BrowserRouter>
             <NotificationsProvider>
-              <Gate />
+              <Routes>
+                <Route path="/auth/done" element={<AuthDone />} />
+                <Route path="*" element={<Gate />} />
+              </Routes>
             </NotificationsProvider>
           </BrowserRouter>
         </ThemeProvider>

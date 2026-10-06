@@ -67,9 +67,9 @@ def export_backup(db: Database, paths: DataPaths, app_version: str) -> Path:
             "org_ids": ",".join(orgs),
         }
         conn.executemany("INSERT INTO husk_export_meta(key, value) VALUES (?, ?)", meta.items())
-        # Machine-local credentials never travel inside a backup: UI sessions and AI keys.
+        # Machine-local credentials never travel inside a backup: UI sessions (tokens live in the OS keychain).
         conn.execute("DELETE FROM sessions")
-        conn.execute("DELETE FROM user_ai_keys")
+        conn.execute("DELETE FROM connectors")  # status of this machine's connectors; their credentials are in the keychain
         n = 0
         if paths.documents.exists():
             for f in sorted(paths.documents.rglob("*")):

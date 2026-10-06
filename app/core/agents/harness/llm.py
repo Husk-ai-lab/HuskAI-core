@@ -8,6 +8,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, ValidationError
 
+from app.gateways.gateway.errors import raise_if_gateway
 from app.helpers.logging import get_logger
 from app.helpers.text import extract_json
 
@@ -40,6 +41,7 @@ async def structured(
             if isinstance(result, dict):
                 return schema.model_validate(result)
         except Exception as exc:
+            raise_if_gateway(exc)  # not entitled / signed out / gateway down: no point trying other modes
             log.debug("structured output via %s failed (%s)", method, type(exc).__name__)
     schema_json = schema.model_json_schema()
     fallback = list(messages) + [
@@ -52,7 +54,11 @@ async def structured(
     ]
     last_err: Exception | None = None
     for _ in range(2):
-        msg = await model.ainvoke(fallback, config=config)
+        try:
+            msg = await model.ainvoke(fallback, config=config)
+        except Exception as exc:
+            raise_if_gateway(exc)
+            raise
         try:
             return schema.model_validate(extract_json(str(msg.content)))
         except (ValidationError, ValueError) as exc:

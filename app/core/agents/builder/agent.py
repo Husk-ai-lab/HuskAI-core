@@ -22,6 +22,7 @@ from app.core.agents.harness.loop import run_tool_loop
 from app.core.agents.harness.personalities import get_personality
 from app.core.agents.harness.studio_tools import mentions_failure, studio_tools
 from app.core.agents.harness.tools import data_tools, knowledge_tools, memory_read_tools
+from app.core.connectors.service import changes_sends
 from app.data.models.agent import ChatMessage, MessageRole, Personality
 from app.data.models.automation import Automation, AutomationGraph, AutomationRunStatus
 from app.data.models.discovery import Opportunity
@@ -99,7 +100,7 @@ class BuilderAgent:
             human(prompts.DRAFT.format(
                 title=opp.title, explanation=opp.explanation, hours=opp.hours_per_week, brief=opp.builder_prompt or "(none)",
                 profile=ctx.memory.profile.markdown(ctx.language), notes=truncate(notes, 9000),
-                documents=json.dumps(docs, ensure_ascii=False),
+                documents=json.dumps(docs, ensure_ascii=False), connectors=ctx.connectors_block(),
             )),
         ]
         last: Exception | None = None
@@ -211,6 +212,7 @@ class BuilderAgent:
                 flow=compact(automation.graph), selected=selected,
                 notes_flag=", network notes" if needs_notes(user_text) else "", memory=truncate(memory, 9000),
             ) + ("\n\n" + failed if failed else "")),
+            system(prompts.CONNECTORS.format(connectors=ctx.connectors_block())),
         ]
         for m in history[-12:]:
             if m.role == MessageRole.user:
@@ -245,7 +247,9 @@ class BuilderAgent:
             reply=reply,
             operations=state["ops"],
             graph=state["graph"] if state["ops"] else None,
-            proposal_required=(personality.requires_confirmation or is_suggestion or is_self_heal) and bool(state["ops"]),
+            # a step that sends to people (email / Telegram) is never applied without the user's yes, whatever the personality
+            proposal_required=(personality.requires_confirmation or is_suggestion or is_self_heal
+                               or changes_sends(automation.graph, state["graph"])) and bool(state["ops"]),
         )
 
     def _last_failed_run(self, automation_id: str) -> str | None:

@@ -24,9 +24,8 @@ def system_status(services: Services = Depends(get_services)) -> SystemStatus:
     s = services.settings
     return SystemStatus(
         version=services.version,
-        llm_configured=services.llm.configured,
         llm_model=services.llm.model_name,
-        zitadel_configured=s.zitadel_configured,
+        login_configured=s.clerk_configured,
         neon_configured=services.neon.enabled,
         maintenance=services.maintenance.status,
         release=services.maintenance.release,
@@ -42,13 +41,8 @@ async def studio_token(services: Services = Depends(get_services), x_husk_launch
     uid = services.db.kv_get("last_user_id")
     if not uid:
         raise HTTPException(404, "no signed-in user")
-    token = services.tokens.get_access(uid)
-    if not token:
-        refresh = services.tokens.load_refresh(uid)
-        if not refresh:
-            raise HTTPException(401, "sign-in required")
-        ts = await services.zitadel.refresh(refresh)
-        services.tokens.save_refresh(uid, ts.refresh_token)
-        services.tokens.set_access(uid, ts.access_token, ts.expires_at, ts.id_token or None)
-        token = ts.access_token
+    try:
+        token = await services.access.get(uid)
+    except Exception:
+        raise HTTPException(401, "sign-in required") from None
     return {"access_token": token, "token_type": "Bearer"}

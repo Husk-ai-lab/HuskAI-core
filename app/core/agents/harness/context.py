@@ -6,10 +6,11 @@ from dataclasses import dataclass
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from app.core.connectors.service import ConnectorService
 from app.core.knowledge.memory import HarnessMemory
 from app.core.knowledge.service import KnowledgeService
 from app.gateways.decisions.base import DecisionModel
-from app.gateways.regolo.provider import LLMProvider, UsageContext
+from app.gateways.gateway.llm import LLMProvider, UsageContext
 from app.gateways.sqlite import Database
 from app.gateways.studio.client import StudioClient
 from app.helpers.settings import Settings
@@ -36,6 +37,7 @@ class AgentContext:
     llm: LLMProvider
     decisions: DecisionModel | None = None  # typed decisions (Jev now, Serenity later)
     studio: StudioClient | None = None
+    connectors: ConnectorService | None = None  # Telegram / Gmail: what automations can send through
     language: str = "en"  # the language agents write user-facing text in (user setting)
 
     @property
@@ -49,6 +51,12 @@ class AgentContext:
         from app.i18n import t
 
         return t("agent.write_in", "en", language=self.language_name)
+
+    def connectors_block(self) -> str:
+        """Which connectors exist and which work: the Builder must not promise a send that cannot happen."""
+        if self.connectors is None:
+            return "(no connectors available)"
+        return self.connectors.prompt_block(self.org_id)
 
     def model(self, temperature: float | None = None, role: str = "builder") -> BaseChatModel:
         """Model per role (see ROLES): the summary role uses the smaller summary model when the key offers it.

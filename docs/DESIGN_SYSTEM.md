@@ -38,7 +38,7 @@ Official Husk AI logo (3D purple mark), exported from the source artwork into `a
 
 | Prototype | MVP |
 | --- | --- |
-| Email + password form, "Continua come ospite" | Email (login hint) + "Accedi" opens ZITADEL. No guest |
+| Email + password form, "Continua come ospite" | One "Continue with your Husk account" button: the system browser opens Clerk, a "you can close this tab" page (`/auth/done`, same design) confirms, and the app window continues by itself. No guest |
 | "Primo accesso" profile choice, Tecnico/Non tecnico | Removed (no distinction in this phase) |
 | Floating "+" (new agent / manual automation) | Removed (no manual automations) |
 | AI agent items (Assistente Qualità) | Not generated in this phase |
@@ -46,4 +46,4 @@ Official Husk AI logo (3D purple mark), exported from the source artwork into `a
 | Settings "Area di lavoro del prototipo" | Replaced by **Backup completo** (Esporta / Importa) |
 | "CONSERVAZIONE ZERO" | "DOCUMENTI IN LOCALE" plus the precise privacy sentence (GDPR G3) |
 | — | Personality selector (chat header + Settings) |
-| Italian-only copy | English (default) + Italian from `app/i18n`; language picker on the AI-key screen, in Settings and in the login corner |
+| Italian-only copy | English (default) + Italian from `app/i18n`; language picker in Settings and in the login corner |

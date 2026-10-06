@@ -37,3 +37,18 @@ def test_logs_scrub_personal_data() -> None:
 
     s = scrub("mail mario.rossi@azienda.it tel +39 333 1234567 cf RSSMRA80A01H501U")
     assert "@" not in s and "333" not in s and "RSSMRA" not in s
+
+
+def test_logs_scrub_credentials_in_urls_and_headers() -> None:
+    """The Telegram bot token is in every Bot API URL; OAuth redirects and bearer tokens must not reach the log file."""
+    import logging
+
+    from app.helpers.logging import ScrubFilter, scrub
+
+    token = "123456789:AAH-secret_bot_token_VALUE"
+    assert token not in scrub(f"POST https://api.telegram.org/bot{token}/getMe")
+    out = scrub("GET /callback?code=abc123&state=xyz789 HTTP/1.1")
+    assert "abc123" not in out and "xyz789" not in out and "/callback?code=<redacted>" in out
+    assert "eyJ" not in scrub("Authorization: Bearer eyJhbGciOi.eyJzdWIi.sig-nature") and "<jwt>" not in scrub("Bearer abcdefghijkl")
+    rec = logging.LogRecord("x", logging.INFO, __file__, 1, "request %s to %s", ("A", f"https://api.telegram.org/bot{token}/send"), None)
+    assert ScrubFilter().filter(rec) and token not in rec.getMessage()  # placeholders are scrubbed too

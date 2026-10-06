@@ -26,7 +26,7 @@ USER = "user_test"
 def settings(tmp_path: Path) -> Settings:
     return Settings(HUSK_ENV="test", HUSK_DATA_DIR=tmp_path / "data", HUSK_PORT=8765,
                     HUSK_STUDIO_UI_URL="http://127.0.0.1:9", HUSK_STUDIO_MCP_URL="http://127.0.0.1:9/mcp",
-                    REGOLO_API_KEY=None, NEON_DATA_API_URL=None, ZITADEL_ISSUER=None, ZITADEL_CLIENT_ID=None)
+                    REGOLO_API_KEY=None, NEON_DATA_API_URL=None, CLERK_ISSUER=None, CLERK_CLIENT_ID=None, HUSK_OPEN_BROWSER=False)
 
 
 @pytest.fixture

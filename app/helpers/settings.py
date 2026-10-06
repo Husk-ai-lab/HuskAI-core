@@ -49,26 +49,26 @@ class Settings(BaseSettings):
     # UI is served by FastAPI itself from app/frontend/dist.
     frontend_dev_url: str | None = Field(None, validation_alias=AliasChoices("HUSK_FRONTEND_DEV_URL"))
 
-    # --- Regolo.ai (temporary: called directly until husk-gateway exists) -------------
-    regolo_api_key: str | None = Field(None, validation_alias=AliasChoices("REGOLO_API_KEY"))
-    # --- Decision model (Venice Jev) ---------------------------------------------------
-    venice_api_key: str | None = Field(None, validation_alias=AliasChoices("VENICE_API_KEY"))  # dev fallback
-    venice_base_url: str = Field(config.VENICE_BASE_URL, validation_alias=AliasChoices("VENICE_BASE_URL"))
-    decision_model: str = Field(config.DECISION_MODEL, validation_alias=AliasChoices("HUSK_DECISION_MODEL"))
+    # --- AI through husk-gateway (no AI key on this computer) --------------------------
+    decision_model: str | None = Field(config.DECISION_MODEL, validation_alias=AliasChoices("HUSK_DECISION_MODEL"))
     gate_related: float = Field(config.GATE_RELATED, validation_alias=AliasChoices("HUSK_GATE_RELATED"))
     gate_deeper: float = Field(config.GATE_DEEPER, validation_alias=AliasChoices("HUSK_GATE_DEEPER"))
     gate_repetitive: float = Field(config.GATE_REPETITIVE, validation_alias=AliasChoices("HUSK_GATE_REPETITIVE"))
     max_network_docs: int = Field(config.MAX_NETWORK_DOCS, validation_alias=AliasChoices("HUSK_MAX_NETWORK_DOCS"))
-    regolo_base_url: str = Field(config.REGOLO_BASE_URL, validation_alias=AliasChoices("REGOLO_BASE_URL"))
-    regolo_model: str | None = Field(config.DEFAULT_REGOLO_MODEL, validation_alias=AliasChoices("REGOLO_MODEL"))
+    llm_model: str | None = Field(config.DEFAULT_LLM_MODEL, validation_alias=AliasChoices("HUSK_LLM_MODEL"))
     summary_model: str | None = Field(config.DEFAULT_SUMMARY_MODEL, validation_alias=AliasChoices("HUSK_SUMMARY_MODEL"))
     llm_temperature: float = Field(0.2, validation_alias=AliasChoices("HUSK_LLM_TEMPERATURE"))
     llm_timeout_s: float = Field(120.0, validation_alias=AliasChoices("HUSK_LLM_TIMEOUT_S"))
+    # The gateway allows 60 requests/minute/user: stay under it (the client queues the rest).
+    gateway_rate_per_minute: int = Field(55, validation_alias=AliasChoices("HUSK_GATEWAY_RATE_PER_MINUTE"))
 
-    # --- ZITADEL (public values: PKCE needs no client secret) ------------------------
-    zitadel_issuer: str | None = Field(config.ZITADEL_ISSUER, validation_alias=AliasChoices("ZITADEL_ISSUER"))
-    zitadel_client_id: str | None = Field(config.ZITADEL_CLIENT_ID, validation_alias=AliasChoices("ZITADEL_CLIENT_ID"))
-    zitadel_project_id: str | None = Field(None, validation_alias=AliasChoices("ZITADEL_PROJECT_ID"))
+    # --- Clerk login (public values: PKCE needs no client secret) ---------------------
+    clerk_issuer: str | None = Field(config.CLERK_ISSUER, validation_alias=AliasChoices("CLERK_ISSUER"))
+    clerk_client_id: str | None = Field(config.CLERK_CLIENT_ID, validation_alias=AliasChoices("CLERK_CLIENT_ID"))
+    # Login opens the system browser from the backend (the UI may be a native webview). Off in tests.
+    open_browser: bool = Field(True, validation_alias=AliasChoices("HUSK_OPEN_BROWSER"))
+    # --- husk-gateway ------------------------------------------------------------------
+    gateway_url: str = Field(config.GATEWAY_URL, validation_alias=AliasChoices("HUSK_GATEWAY_URL"))
 
     # --- Neon husk-core: anonymous Data API, read-only (maintenance + releases) -------
     # Public by design: no credential. Reads only the views granted to `anonymous`, with a short-lived
@@ -113,16 +113,12 @@ class Settings(BaseSettings):
     suggestions_debounce_s: float = Field(15.0, validation_alias=AliasChoices("HUSK_SUGGESTIONS_DEBOUNCE_S"))
 
     @property
-    def llm_configured(self) -> bool:
-        return bool(self.regolo_api_key)
-
-    @property
-    def zitadel_configured(self) -> bool:
-        return bool(self.zitadel_issuer and self.zitadel_client_id)
+    def clerk_configured(self) -> bool:
+        return bool(self.clerk_issuer and self.clerk_client_id)
 
     @property
     def redirect_uri(self) -> str:
-        return f"http://127.0.0.1:{self.port}/auth/callback"
+        return f"http://127.0.0.1:{self.port}/callback"
 
 
 @lru_cache

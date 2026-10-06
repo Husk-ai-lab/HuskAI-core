@@ -11,7 +11,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import config
-from app.gateways.regolo.provider import pick_model
 from app.helpers.settings import Settings
 from app.i18n import catalogue, normalize, resolve_lang, t
 from test.conftest import ORG, USER, login
@@ -51,8 +50,8 @@ def test_plural_pairs_are_complete() -> None:
 def _keys_used_in_code() -> set[str]:
     used: set[str] = set()
     py = re.compile(
-        r"(?:\bt\(\s*|api_error\([^,]+,\s*|LocalizedError\(\s*|Rejected\(\s*|BackupError\(\s*|ZitadelError\(\s*"
-        r"|NotConfigured\(\s*|key=)\"([a-z_]+\.[a-z0-9_.]+)\""
+        r"(?:\bt\(\s*|api_error\([^,]+,\s*|LocalizedError\(\s*|Rejected\(\s*|BackupError\(\s*\s*"
+        r"|NotConfigured\(\s*|ClerkError\(\s*|key=)\"([a-z_]+\.[a-z0-9_.]+)\""
     )
     for p in (ROOT / "app").rglob("*.py"):
         used |= set(py.findall(p.read_text("utf-8")))
@@ -156,11 +155,12 @@ async def test_agents_write_in_the_users_language(services) -> None:  # type: ig
 # --- public config ---------------------------------------------------------------------------------
 def test_public_config_defaults_and_env_override(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     s = Settings(HUSK_ENV="test")
-    assert s.zitadel_issuer == config.ZITADEL_ISSUER and s.zitadel_client_id == config.ZITADEL_CLIENT_ID
-    assert s.neon_data_api_url == config.NEON_DATA_API_URL and s.regolo_model == config.DEFAULT_REGOLO_MODEL
-    monkeypatch.setenv("ZITADEL_ISSUER", "https://staging.example.zitadel.cloud")
-    assert Settings(HUSK_ENV="test").zitadel_issuer == "https://staging.example.zitadel.cloud"
-    assert Settings(HUSK_ENV="test", ZITADEL_ISSUER=None).zitadel_issuer is None
+    assert s.clerk_issuer == config.CLERK_ISSUER and s.clerk_client_id == config.CLERK_CLIENT_ID
+    assert s.gateway_url == config.GATEWAY_URL
+    assert s.neon_data_api_url == config.NEON_DATA_API_URL and s.llm_model == config.DEFAULT_LLM_MODEL
+    monkeypatch.setenv("CLERK_ISSUER", "https://staging.example.clerk.accounts.dev")
+    assert Settings(HUSK_ENV="test").clerk_issuer == "https://staging.example.clerk.accounts.dev"
+    assert Settings(HUSK_ENV="test", CLERK_ISSUER=None).clerk_issuer is None
 
 
 def test_config_holds_no_secrets() -> None:
@@ -180,12 +180,3 @@ def test_discovery_copy_never_sells_a_free_pre_purchase_map(lang: str) -> None:
     banned = re.compile(r"\bfree\b|gratuit|obblig|obligation|no strings|senza impegno", re.I)
     bad = {k: v for k, v in catalogue(lang).items() if k.startswith("discovery.") and banned.search(v)}
     assert not bad, bad
-
-
-def test_model_id_matching() -> None:
-    ids = ["meta/Llama-3.3-70B-Instruct", "openai/gpt-oss-120b", "Qwen3-8B"]
-    assert pick_model("gpt oss 120B", ids) == "openai/gpt-oss-120b"
-    assert pick_model("GPT-OSS-120b", ["gpt-oss-120b"]) == "gpt-oss-120b"
-    assert pick_model("not-offered", ["Llama-3.3-70B-Instruct", "x"]) == "Llama-3.3-70B-Instruct"  # preference list
-    assert pick_model("not-offered", ["something"]) == "something"
-    assert pick_model("anything", []) is None

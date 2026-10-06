@@ -2,7 +2,7 @@ export type Theme = "light" | "dark";
 export type PersonalityId = "bilanciato" | "ultra_prudente" | "esplicativo" | "conciso";
 
 export interface User { id: string; org_id: string; org_name?: string | null; email?: string | null; display_name?: string | null; roles: string[] }
-export interface UserSettings { theme: Theme; language: "it" | "en"; personality: PersonalityId }
+export interface UserSettings { theme: Theme; language: "it" | "en"; personality: PersonalityId; connectors_onboarded: boolean }
 export interface Me { user: User; settings: UserSettings }
 
 export interface MaintenanceWindow { id: string; message_it: string; message_en: string; starts_at: string; ends_at: string; blocking: boolean }
@@ -10,13 +10,13 @@ export interface Maintenance {
   active: boolean; blocking: boolean; message_it?: string | null; message_en?: string | null; starts_at?: string | null; ends_at?: string | null;
   source: string; upcoming: MaintenanceWindow[];
 }
-export interface AiKeyStatus { configured: boolean; source: "user" | "env" | "none"; hint?: string | null; model?: string | null; verified_at?: string | null; decision_hint?: string | null; decision_model?: string | null }
 export interface StudioStatus {
   alive: boolean; ui_url?: string | null; otlp: boolean; mcp: boolean; mcp_tools: string[];
   tracing?: boolean; install_url?: string; run_url_template?: string;
 }
+export interface Entitlement { allowed: boolean | null; status: string; source: "gateway" | "cache" | "unknown" }
 export interface SystemStatus {
-  version: string; llm_configured: boolean; llm_model?: string | null; zitadel_configured: boolean; neon_configured: boolean;
+  version: string; llm_model?: string | null; login_configured: boolean; neon_configured: boolean;
   maintenance: Maintenance; release: { current: string; latest?: string | null; update_available: boolean; update_required: boolean };
   studio: StudioStatus; data_dir: string;
 }
@@ -75,12 +75,18 @@ export interface Proposal { id: string; summary: string; operations: Record<stri
 export interface Chat { id: string; automation_id?: string | null; personality: PersonalityId }
 export interface ChatView { chat: Chat; messages: ChatMessage[]; proposals: Proposal[]; suggestions: string[] }
 
-export type SuggestionKind = "modify_automation" | "new_automation" | "memory_update" | "source_deleted" | "run_discovery";
+export type SuggestionKind = "modify_automation" | "new_automation" | "memory_update" | "source_deleted" | "run_discovery" | "configure_connector";
 export type SuggestionStatus = "new" | "seen" | "applied" | "dismissed";
 export interface SuggestionEvidence { document_id: string; chunk_id?: string | null; quote: string }
 export interface Suggestion {
-  id: string; kind: SuggestionKind; status: SuggestionStatus; automation_id?: string | null; document_ids: string[];
+  id: string; kind: SuggestionKind; status: SuggestionStatus; automation_id?: string | null; connector?: string | null; document_ids: string[];
   title: string; body: string; prompt?: string | null; evidence: SuggestionEvidence[]; confidence: number;
   hours_per_week?: number | null; created_at: string; updated_at: string;
 }
 export interface SuggestionSummary { unread: number; open: number; processing: boolean }
+
+export type ConnectorState = "not_configured" | "ready" | "error";
+export interface Connector {
+  kind: "telegram" | "gmail"; state: ConnectorState; hint?: string | null; target_hint?: string | null;
+  verified_at?: string | null; last_ok_at?: string | null; last_error?: string | null;
+}

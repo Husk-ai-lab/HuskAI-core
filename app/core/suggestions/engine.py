@@ -26,6 +26,7 @@ from app.core.agents.explorer.agent import ExplorerAgent
 from app.core.agents.explorer.summarizer import Summarizer
 from app.core.agents.harness.context import AgentContext
 from app.core.agents.planner.agent import PlannerAgent
+from app.core.connectors.service import kinds_used
 from app.data.models.automation import Automation, AutomationStatus
 from app.data.models.discovery import Opportunity
 from app.data.models.document import Document, DocumentStatus
@@ -264,6 +265,42 @@ class SuggestionEngine:
         self._publish(created)
         return created
 
+    # --- connectors ---------------------------------------------------------------------------
+    def connector_problem(self, kind: str, automation: Automation | None, code: str | None) -> Suggestion | None:
+        """An automation sends through a connector that is not set up (`code` None) or stopped working (`code`).
+        ONE open suggestion per connector; no LLM, no document evidence: a fixed, localized request."""
+        if self.repo.find_open_connector(kind):
+            return None
+        name = t(f"connectors.name_{kind}", self.lang)
+        if code:
+            title = t("suggestions.connector_error_title", self.lang, connector=name)
+            body = t("suggestions.connector_error_body", self.lang, connector=name, reason=t(f"connectors.error_{code}", self.lang))
+        else:
+            title = t("suggestions.connector_setup_title", self.lang, connector=name)
+            body = t("suggestions.connector_setup_body", self.lang, connector=name,
+                     automation=automation.title if automation else t("suggestions.connector_some_automation", self.lang))
+        s = self._new(SuggestionKind.configure_connector, title, body=body, connector=kind,
+                      automation_id=automation.id if automation else None)
+        self._publish([s])
+        return s
+
+    def check_connectors(self, a: Automation) -> list[Suggestion]:
+        """Called when an automation is saved, activated or drafted."""
+        created = []
+        for kind in kinds_used(a.graph):
+            cn = self.services.connectors.get(self.org_id, kind)
+            if cn.alive:
+                continue
+            s = self.connector_problem(kind.value, a, cn.last_error if cn.state.value == "error" else None)
+            if s:
+                created.append(s)
+        return created
+
+    def connector_ready(self, kind: str) -> None:
+        """The connector works now: its open suggestions are done."""
+        while (s := self.repo.find_open_connector(kind)) is not None:
+            self.repo.set_status(s.id, SuggestionStatus.applied)
+
     # --- applying -----------------------------------------------------------------------------
     async def create_draft(self, s: Suggestion) -> Automation:
         """new_automation: card notes → a Planner brief (summary depth) → the Builder drafts (like discovery 6–7)."""
@@ -288,6 +325,7 @@ class SuggestionEngine:
         )
         repo = AutomationRepo(self.services.db, self.org_id)
         repo.save(auto, change_note=t("suggestions.change_note_draft", self.lang), author="builder")
+        self.check_connectors(auto)
         ctx.memory.networks.keep(net.id, auto.id)
         ctx.memory.networks.write_summary(auto.id, net.id, await builder.summarize(auto.title, net))
         s.status, s.automation_id = SuggestionStatus.applied, auto.id

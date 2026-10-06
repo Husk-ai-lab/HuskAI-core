@@ -13,12 +13,13 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
                  │        ── agents/orchestrator (Husk Op) → explorer · builder (LangChain)│
                  │        ── automations (graph executor, local scheduler)                │
                  │     │                                                                 │
-                 │  gateways/ sqlite (ALL product data) · zitadel · regolo · neon · studio │
+                 │  gateways/ sqlite (ALL product data) · clerk · gateway · connectors · neon · studio │
                  └────┬──────────────┬──────────────┬───────────────┬────────────────────┘
-                      │ OIDC+PKCE    │ HTTPS        │ HTTPS GET,     │ loopback only
+                      │ OAuth+PKCE   │ HTTPS+Bearer │ HTTPS GET,     │ loopback only
                       │              │              │ anonymous      │
-                   ZITADEL (EU)   Regolo.ai (IT)  Neon Data API    Husk Studio (optional, dev)
-                                  zero retention  maint.+releases   OTLP + MCP
+                    Clerk (login)  husk-gateway   Neon Data API    Husk Studio (optional, dev)
+                                  → Regolo / Venice  maint.+releases   OTLP + MCP
+                   + Telegram / Gmail, only for what the user's automations send (connectors)
 ```
 
 ## Layers (repository map)
@@ -26,12 +27,12 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 | Path | Responsibility |
 | --- | --- |
 | `app/main.py` | App factory, lifespan (migrations, maintenance poll, Studio probe, scheduler), localized error handlers, SPA serving |
-| `app/config.py` | Public, committed configuration: ZITADEL issuer + client id, Regolo base URL + default model, Neon Data API URL, supported languages. Env vars override it |
+| `app/config.py` | Public, committed configuration: Clerk issuer + client id, husk-gateway URL, default models, Neon Data API URL, supported languages. Env vars override it |
 | `app/i18n/` | Shared message catalogues (`locales/en.json`, `it.json`), `t()`, localized errors. See [I18N.md](I18N.md) |
 | `app/endpoints/v1/` | HTTP API. `user/` (login, settings, backup), `documents/`, `discovery/`, `automations/`, `agent/` (builder chat), `suggestions/` (list, seen/dismiss/apply, SSE), `system.py` (health, status, Studio token) |
 | `app/data/models/` | Pydantic domain models (documents, knowledge memory, discovery, automation graphs, agents) |
 | `app/data/neon/` | Pydantic models 1:1 with the plan's `husk-core` schema (11 tables) |
-| `app/gateways/` | Everything that talks to the outside: `sqlite/` (repositories, migrations, backup), `zitadel/`, `regolo/`, `neon/`, `studio/` |
+| `app/gateways/` | Everything that talks to the outside: `sqlite/` (repositories, migrations, backup), `clerk/` (OAuth + PKCE login, tokens), `gateway/` (husk-gateway client: Bearer + rate gate, LLM provider, `/v1/decide` adapter, entitlement), `connectors/` (Telegram, Gmail, keychain secrets), `neon/`, `studio/` |
 | `app/core/knowledge/` | Conversion, chunking, BM25s index, search + highlights, `tabular/` data-scientist tools and `facts.py` (spreadsheet cards), `memory/` (the harness) |
 | `app/core/agents/` | `harness/` (LangChain tool loop, structured outputs, personalities, tools, self-heal, Studio MCP tools), `explorer/` (discovery: `summarizer.py` cards, confidence-driven exploration — [agents/EXPLORER_AGENT.md](agents/EXPLORER_AGENT.md)), `builder/` (automation editing), `orchestrator.py` (Husk Op) |
 | `app/core/metering.py` | Token metering per step and per model, budget guard |
@@ -46,10 +47,10 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 
 | Kind | Where | Committed |
 | --- | --- | --- |
-| Public identifiers (ZITADEL issuer/client id, Regolo URL + default model, Neon Data API URL, languages) | `app/config.py` | Yes |
-| Overrides for dev/staging, developer AI key | `.env` (root) | No |
+| Public identifiers (Clerk issuer/client id, gateway URL, default models, Neon Data API URL, languages) | `app/config.py` | Yes |
+| Overrides for dev/staging; provider keys for benchmarks only | `.env` (root) | No |
 | Values passed by the future shell (`HUSK_PORT`, `HUSK_DATA_DIR`, `HUSK_LAUNCH_SECRET`, `HUSK_STUDIO_*`) | Environment | — |
-| Per-user AI key | `user_ai_keys` in the local SQLite | No (and never exported) |
+| Clerk refresh token, connector credentials (Telegram bot token + chat, Gmail App Password) | OS keychain (`keyring`), never SQLite | No (and never exported) |
 
 ## Where data lives
 
@@ -67,8 +68,8 @@ Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<o
 
 ## Multi-tenancy (B2B)
 
-* Every product table carries `org_id`, taken from the ZITADEL `resourceowner` claim. Repositories are constructed with the caller's org, so endpoint code cannot forget the filter.
-* Roles come from ZITADEL project roles (`owner`/`admin`/`member`).
+* Every product table carries `org_id`, taken from the `org_id` claim of the Clerk access token (a user without an organisation cannot sign in: the gateway would answer `401 organisation claim missing`). Repositories are constructed with the caller's org, so endpoint code cannot forget the filter.
+* Clerk does not put an organisation name or roles in the token: the UI shows the user's email, and every user is a `member` for now.
 * Several orgs can share one installation (e.g. a consultant machine); backups refuse to import into a different org.
 
 ## Security on the machine
@@ -83,8 +84,8 @@ Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<o
 | Contract | Where | Why |
 | --- | --- | --- |
 | Env vars `HUSK_PORT`, `HUSK_DATA_DIR`, `HUSK_LAUNCH_SECRET`, `HUSK_STUDIO_*` | `helpers/settings.py` | The Tauri shell passes them (plan → *Opening the app*) |
-| `/health`, `/auth/callback`, `/internal/studio-token` | `endpoints/v1/system.py`, `user/router.py` | Shell health check, ZITADEL redirect, Studio token |
-| `LLMProvider` | `gateways/regolo/provider.py` | Swap direct Regolo for `husk-gateway` without touching agents |
+| `/health`, `/callback`, `/auth/done`, `/internal/studio-token` | `endpoints/v1/system.py`, `user/router.py`, UI route | Shell health check, Clerk redirect (`http://127.0.0.1:8765/callback`), the "you can close this tab" page, Studio token |
+| `LLMProvider` / `DecisionModel` | `gateways/gateway/llm.py`, `gateways/decisions/base.py` | Agents never see a provider: today the gateway, tomorrow any other |
 | `DecisionProvider` | `core/automations/decision.py` | Serenity replaces LLM decisions behind the same interface |
 | `NeonGateway` | `gateways/neon/gateway.py` | Swap the anonymous Data API for the gateway's public `/v1/status` with no other change |
 | MCP tool discovery | `gateways/studio/client.py` | Uses only tools Studio advertises (`list_tools()`) |
@@ -93,9 +94,10 @@ Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<o
 
 | Plan rule | MVP | Way back |
 | --- | --- | --- |
-| Rule 3 — no paid secret on the customer's computer | Regolo key provided by Husk AI, entered by the user after login, verified with Regolo, stored in local `user_ai_keys` (`.env` = developer fallback) | Point `LLMProvider` at `husk-gateway`; drop `user_ai_keys` |
+| Rule 3 — no paid secret on the customer's computer | **Met**: all AI goes through `husk-gateway` with the user's Clerk token; no AI key on the machine. (`user_ai_keys` was dropped in migration 008.) | — |
 | Husk never talks to Neon directly | Anonymous, read-only Neon Data API for two public views (maintenance, releases), with a short-lived anonymous Neon Auth token. **No stored credential on the machine** | Point `NeonGateway` at `/v1/status` |
-| Paywall (rule 6) | Not implemented: billing state needs a verified identity, so it waits for husk-gateway | Gateway `/v1/entitlement` |
+| Paywall (rule 6) | The gateway decides (`/v1/entitlement`, billing state); the app shows an "installation not active" screen when it says no and keeps the last answer for offline opening. The 72-hour signed entitlement token of the plan is not implemented | Gateway-issued token |
+| Customer data stays local | Except what the user's own automations send through the connectors they set up (Telegram, Gmail): that goes from this computer straight to Telegram / Google | Document in the GDPR guide data map |
 | Tecnico / Non tecnico profiles | One view for everyone | Re-introduce with a setting |
 | Fly.io 24/7 runtime | "Attiva" = local scheduler only | Deploy endpoint in the gateway |
 | Manual automations / user AI agents | Not available; edits only through the builder | Later phase |

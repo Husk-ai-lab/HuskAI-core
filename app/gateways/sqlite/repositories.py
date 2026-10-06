@@ -13,6 +13,7 @@ from typing import Any
 
 from app.data.models.agent import AgentCheckpoint, Chat, ChatMessage, Proposal, ProposalStatus
 from app.data.models.automation import Automation, AutomationRun, AutomationVersion
+from app.data.models.connector import Connector, ConnectorKind, ConnectorState
 from app.data.models.discovery import (
     DiscoveryRun,
     DiscoveryStep,
@@ -782,6 +783,57 @@ class SuggestionRepo:
             ):
                 return s
         return None
+
+
+    def find_open_connector(self, connector: str) -> Suggestion | None:
+        """Dedupe: ONE open "set up / fix this connector" suggestion per connector, whichever automation needs it."""
+        for sug in self.list(OPEN_STATUSES):
+            if sug.kind == SuggestionKind.configure_connector and sug.connector == connector:
+                return sug
+        return None
+
+
+# --- connectors (status only: the credentials live in the OS keychain) ----------------------------
+class ConnectorRepo:
+    def __init__(self, db: Database, org_id: str):
+        self.db, self.org_id = db, org_id
+
+    def get(self, kind: ConnectorKind) -> Connector | None:
+        with self.db.read() as c:
+            r = c.execute("SELECT * FROM connectors WHERE org_id = ? AND kind = ?", (self.org_id, kind.value)).fetchone()
+        return self._row(r) if r else None
+
+    def list(self) -> list[Connector]:
+        with self.db.read() as c:
+            rows = c.execute("SELECT * FROM connectors WHERE org_id = ? ORDER BY kind", (self.org_id,)).fetchall()
+        return [self._row(r) for r in rows]
+
+    def save(self, cn: Connector) -> Connector:
+        cn.updated_at = utcnow()
+        with self.db.tx() as c:
+            c.execute(
+                "INSERT INTO connectors(org_id, kind, state, hint, target_hint, verified_at, last_ok_at, last_error, "
+                "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(org_id, kind) DO UPDATE SET "
+                "state = excluded.state, hint = excluded.hint, target_hint = excluded.target_hint, "
+                "verified_at = excluded.verified_at, last_ok_at = excluded.last_ok_at, last_error = excluded.last_error, "
+                "updated_at = excluded.updated_at",
+                (self.org_id, cn.kind.value, cn.state.value, cn.hint, cn.target_hint,
+                 iso(cn.verified_at) if cn.verified_at else None, iso(cn.last_ok_at) if cn.last_ok_at else None,
+                 cn.last_error, iso(cn.updated_at)),
+            )
+        return cn
+
+    def delete(self, kind: ConnectorKind) -> None:
+        with self.db.tx() as c:
+            c.execute("DELETE FROM connectors WHERE org_id = ? AND kind = ?", (self.org_id, kind.value))
+
+    def _row(self, r: Any) -> Connector:
+        return Connector(
+            org_id=r["org_id"], kind=ConnectorKind(r["kind"]), state=ConnectorState(r["state"]), hint=r["hint"],
+            target_hint=r["target_hint"], verified_at=parse_iso(r["verified_at"]) if r["verified_at"] else None,
+            last_ok_at=parse_iso(r["last_ok_at"]) if r["last_ok_at"] else None, last_error=r["last_error"],
+            updated_at=parse_iso(r["updated_at"]),
+        )
 
 
 # --- checkpoints + usage ---------------------------------------------------------------------------

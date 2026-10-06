@@ -37,7 +37,7 @@ class Role(StrEnum):
 class User(OrgScoped):
     """Local user record. Names and emails stay on this computer."""
 
-    id: str  # ZITADEL user id (sub)
+    id: str  # Clerk user id (`sub`)
     email: str | None = None
     display_name: str | None = None
     org_name: str | None = None
@@ -62,12 +62,14 @@ class UserSettings(HuskModel):
     theme: Theme = Theme.light
     language: Language = Language.en
     personality: PersonalityId = PersonalityId.bilanciato
+    connectors_onboarded: bool = False  # the first-login "configure your connectors" popup was seen
 
 
 class UserSettingsPatch(HuskModel):
     theme: Theme | None = None
     language: Language | None = None
     personality: PersonalityId | None = None
+    connectors_onboarded: bool | None = None
 
 
 class Me(HuskModel):

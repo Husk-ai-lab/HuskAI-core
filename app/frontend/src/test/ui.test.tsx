@@ -1,5 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { AiKeyField } from "../components/AiKeyField";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Markdown } from "../components/Markdown";
@@ -23,16 +22,5 @@ describe("UI", () => {
     render(<Markdown text={"# Titolo\n- **uno** [[note_1]]\n<script>x</script>"} />);
     expect(screen.getByRole("heading", { name: "Titolo" })).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
-  });
-
-  it("AI key field is masked until shown", () => {
-    let value = "";
-    render(<I18nProvider initial="en"><AiKeyField value="rg-secret-1234" onChange={(v) => { value = v; }} /></I18nProvider>);
-    const input = screen.getByPlaceholderText(/./) as HTMLInputElement;
-    expect(input.type).toBe("password");
-    fireEvent.click(screen.getByRole("button", { name: /show/i }));
-    expect(input.type).toBe("text");
-    fireEvent.change(input, { target: { value: "rg-new-key-5678" } });
-    expect(value).toBe("rg-new-key-5678");
   });
 });

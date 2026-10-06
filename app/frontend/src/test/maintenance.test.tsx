@@ -1,6 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AiKeySetup } from "../pages/AiKeySetup";
 import { MaintenanceAlert } from "../components/MaintenanceAlert";
 import { acknowledge, acknowledged, minutesUntil, nextBlocking, upcoming } from "../lib/maintenance";
 import { I18nProvider, type Lang } from "../i18n";
@@ -53,29 +52,5 @@ describe("MaintenanceAlert", () => {
     expect(screen.getByText("Update en")).toBeInTheDocument();
     expect(screen.getByText("Got it")).toBeInTheDocument();
     expect(screen.queryByText(/far/)).toBeNull();
-  });
-});
-
-describe("AiKeySetup", () => {
-  it("requires a key before verifying and offers logout", () => {
-    const logout = vi.fn();
-    render(<I18nProvider initial="it"><QueryClientProvider client={new QueryClient()}><AiKeySetup onLogout={logout} /></QueryClientProvider></I18nProvider>);
-    const btn = screen.getByRole("button", { name: /Verifica e salva/ });
-    expect(btn).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Chiave AI"), { target: { value: "rg-1234567890" } });
-    expect(btn).toBeEnabled();
-    expect(screen.getByLabelText("Chiave AI")).toHaveAttribute("type", "password");
-    fireEvent.click(screen.getByText("Esci"));
-    expect(logout).toHaveBeenCalled();
-  });
-
-  it("switches the whole screen language and remembers the choice", () => {
-    localStorage.clear();
-    render(<I18nProvider initial="en"><QueryClientProvider client={new QueryClient()}><AiKeySetup onLogout={() => {}} /></QueryClientProvider></I18nProvider>);
-    expect(screen.getByRole("heading", { name: "Connect the AI assistant." })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: "Italiano" }));
-    expect(screen.getByRole("heading", { name: "Collega l’assistente AI." })).toBeInTheDocument();
-    expect(localStorage.getItem("husk.lang")).toBe("it");
-    expect(document.documentElement.lang).toBe("it");
   });
 });

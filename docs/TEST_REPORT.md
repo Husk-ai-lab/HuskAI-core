@@ -1,22 +1,22 @@
 # Test report — Husk MVP
 
-Oct 4, 2026 · @Marco · run after moving discovery to document cards + a decision model (Venice Jev), the 50-document cap and token metering
+Oct 6, 2026 · @Marco · run after the pivot to Clerk login, husk-gateway (no AI key on the machine) and the Telegram / Gmail connectors
 
 ## Summary
 
 | Suite | Result | Time |
 | --- | --- | --- |
-| Backend — pytest (`test/`) | **150 passed**, 0 failed, 0 skipped (warnings as errors) | ~20 s |
-| Backend line coverage (`app/`) | 89% at the last measurement (Oct 4, before the Neon token and progress changes; `coverage` is not installed here, so not re-measured) | — |
+| Backend — pytest (`test/`) | **178 passed**, 0 failed, 0 skipped | ~25 s |
+| Backend line coverage (`app/`) | 89% at the last measurement (Oct 4, before Neon token, progress, Clerk, gateway and connectors; `coverage` is not installed here, so not re-measured) | — |
 | Frontend — TypeScript (`tsc -b`) | clean | — |
-| Frontend — vitest | **64 passed** (incl. the 4 discovery-stage tests and the per-file no-hard-coded-text guard over every `.tsx` file) | 0.8 s |
+| Frontend — vitest | **84 passed** (incl. login polling, the "you can close this tab" page, the first-login connectors popup, the guides in both languages, and the per-file no-hard-coded-text guard over every `.tsx` file) | 1.2 s |
 | Lint — ruff (`app test benchmarks installer.py`) | all checks passed | — |
 | Benchmarks — offline (`python -m benchmarks.report`) | all ran; results below | ~10 s |
-| Desktop binary — `installer.py --smoke` | built (187 MB, one-folder), `/health` → `{"status":"ok"}` | ~3 min |
+| Desktop binary — `installer.py --smoke` | built (one-folder), `/health` → `{"status":"ok","version":"0.1.0"}` (Oct 6) | ~3 min |
 | Discovery benchmark — live (`bench_discovery_tokens --live`, Valsorda 30 docs) | completed in **29 s**, 75 calls, $0.014; 6/9 planted tasks; see `benchmarks/results/DISCOVERY_BENCHMARK.md` | 29 s |
-| Visual check | Prototype screens light + dark; AI-key screen, maintenance modal/banner; login, key screen, discovery report and editor in **English and Italian**; light bulb with dot, Suggestions page (EN light, IT dark), editor opened from a suggestion, suggestion bubble + proposal (headless Chrome, scripted model, Valsorda documents uploaded as a folder) | manual |
+| Visual check | (Oct 4, before the pivot; the login, popup and Settings screens of this change have NOT been looked at in a browser) Prototype screens light + dark; maintenance modal/banner; login, key screen, discovery report and editor in **English and Italian**; light bulb with dot, Suggestions page (EN light, IT dark), editor opened from a suggestion, suggestion bubble + proposal (headless Chrome, scripted model, Valsorda documents uploaded as a folder) | manual |
 
-**Not covered by automated tests:** the real Regolo.ai model, the real ZITADEL login, the real Neon Data API, a running Husk Studio, and Windows/Linux builds. See [What is not tested](#what-is-not-tested).
+**Not covered by automated tests:** the real Clerk login, the real husk-gateway (chat, decisions, entitlement), real Telegram and Gmail, the real Neon Data API, a running Husk Studio, and Windows/Linux builds. See [What is not tested](#what-is-not-tested).
 
 Environment: macOS 26.6 arm64 · Python 3.11.15 (uv) · Node 22 · FastAPI 0.142 · LangChain-core 1.6 · BM25s 0.3.12 · PyInstaller 6.22 · pytest 9.1.
 
@@ -33,7 +33,7 @@ uv run python installer.py --skip-ui --smoke               # binary + /health
 
 No test needs network access or secrets. External services are replaced by:
 - `test/fakes.py`: a **scripted LangChain chat model**. It returns structured outputs and tool calls, including a deliberately truncated note that the validator must reject before a corrected rewrite.
-- `respx`: mocks ZITADEL discovery and token endpoints, the Neon Data API and Husk Studio.
+- `respx`: mocks Clerk (discovery, JWKS, token, userinfo, revoke) with a locally generated RSA key, husk-gateway, the Telegram Bot API, the Neon Data API and Husk Studio. Gmail is tested with a fake `smtplib.SMTP_SSL`.
 - In-memory token storage instead of the OS keychain.
 
 Each test gets its own temporary data folder and SQLite database.
@@ -73,7 +73,7 @@ Frontend `studio.test.tsx` (9): run/home/install targets; StudioAction install v
 | `test_deleting_a_used_document_suggests_a_review` | Deleting a cited document → `source_deleted` with the file name in the prompt; `/apply` refuses (changes go through the chat); dismiss works |
 | `test_new_automation_suggestion_creates_a_draft` | `new_automation` → draft with summary, `run_id = None`; second apply → 409 |
 | `test_upload_batches_are_debounced_into_one_job` | 3 uploads → 1 job with 3 documents |
-| `test_no_ai_key_means_no_analysis` | No key → no model call, no suggestion |
+| `test_not_signed_in_to_the_gateway_means_no_analysis` | No gateway sign-in → no model call, no suggestion |
 | `test_suggestions_are_org_scoped` | Another org sees nothing and gets 404 |
 | `test_folder_upload_keeps_safe_relative_paths` | `paths` stored as `source_path`; `../` removed; bad filter → 400 |
 | `test_documents_covered_by_discovery_are_not_reanalysed` | A late upload job finds the documents discovery just analysed and does nothing |
@@ -102,7 +102,7 @@ Frontend `suggestions.test.tsx` (8): bulb dot only with unread; snackbar on an S
 | `test_graph_validation_rules` | Rejects unlabelled condition branches, loops, two triggers |
 | `test_operations` | add / remove (reconnects the flow) / set_trigger; invalid branch and trigger removal are refused |
 | `test_condition_evaluation` | Numeric, string and dotted-path conditions |
-| `test_executor_prova_runs_locally` | Prova follows only the taken branch; email is **simulated** |
+| `test_executor_prova_runs_locally` | Prova follows only the taken branch; the email step is **skipped** because Gmail is not set up (the run goes on) |
 | `test_executor_writes_pdf_on_false_branch` | The other branch writes a real PDF report |
 | `test_status_and_test_run_api` | Prova API, run history, *Attiva* schedules a next run locally, *Carica* unschedules |
 
@@ -142,21 +142,38 @@ Frontend `suggestions.test.tsx` (8): bulb dot only with unread; snackbar on an S
 | `test_agents_write_in_the_users_language` | The explorer's system prompt tells the model "in Italian" vs "in English" according to the user setting |
 | `test_public_config_defaults_and_env_override` | Defaults come from `app/config.py`; env vars and explicit overrides win |
 | `test_config_holds_no_secrets` | No variable in `config.py` is named like a credential |
-| `test_model_id_matching` | "gpt oss 120B" matches Regolo's `openai/gpt-oss-120b`; fallback to the preference list |
 
-### `test_ai_key.py` — AI key after login (10)
+### `test_gateway.py` — husk-gateway client, provider, decision adapter (22)
 | Test | Verifies |
 | --- | --- |
-| `test_no_key_blocks_ai_but_not_local_work` | No key → AI endpoints 503 "Chiave AI mancante"; local work still works |
-| `test_valid_key_is_verified_then_saved_in_user_data` | Key checked against Regolo `/models` with the right header, then saved in `user_ai_keys` (user, org, hint, model); never echoed back |
-| `test_rejected_key_is_not_saved` | Regolo 401 → 400, nothing stored, the setup screen stays |
-| `test_unverifiable_key_is_not_saved` | Network down → 503, nothing stored (verification is mandatory) |
-| `test_key_without_models_is_refused` | A key with no models → refused |
-| `test_input_validation_and_delete` | Too short → 422; contains spaces → 400; delete works |
-| `test_keys_are_per_user` | Each user's AI calls use their own key; a user without a key is refused |
-| `test_key_never_exported_but_survives_import` | The key is absent from the backup file; the importing user keeps their key |
-| `test_env_key_is_a_developer_fallback` | `.env` key used only when the user has none |
-| `test_mask` | Only the last 4 characters are ever shown |
+| `test_requests_carry_the_bearer_token_and_a_user_agent` | `Authorization: Bearer <Clerk token>` and the explicit `User-Agent` (Cloudflare) on every call |
+| `test_an_invalid_token_is_renewed_once` | 401 "invalid token" → one refresh through Clerk and one retry with the new token |
+| `test_no_organisation_is_not_retried_and_is_explained` | 401 "organisation claim missing" is not retried and maps to `errors.gateway_no_org` |
+| `test_gateway_answers_become_localized_errors` (4) | 403 / 429 / 503 / 400 → not entitled / busy / unavailable / rejected |
+| `test_without_a_sign_in_…` · `test_unreachable_gateway_…` | No token → "sign in again" and nothing is sent; network down → a clean error |
+| `test_rate_gate_keeps_us_under_the_limit` | The 4th request in a minute waits for the window (fake clock) |
+| `test_chat_goes_through_the_gateway_with_the_users_token` | `ChatOpenAI` over the gateway: model, `reasoning_effort`, `max_tokens`, usage recorded locally and in the meter |
+| `test_not_entitled_stops_at_once_…` | 403 is not retried, is mapped, and neither the token nor the prompt is logged |
+| `test_no_sign_in_no_model` | No usable token → `LLMNotConfigured` |
+| `test_yes_no_question_…` · `test_choice_maps_…` · `test_ten_band_score_…` · `test_eight_hour_buckets_…` | The `/v1/decide` adapter: `noul`, `choice`, 10-band `score`, 8-bucket hours; probabilities keyed by level index |
+| `test_state_is_trimmed_to_the_gateway_limit` | 12 000-character state limit: short lines kept, long summaries shortened evenly |
+| `test_decide_batches_by_16_and_decodes` · `test_decide_errors_are_localized` | 16 questions per request, request shape, metering, error mapping |
+| `test_entitlement_is_cached_…` · `test_not_paid_is_reported_…` | `/api/v1/user/entitlement`: cached for offline, unknown never blocks, an expired gateway session ends the local one |
+
+### `test_connectors.py` — Telegram and Gmail (17)
+| Test | Verifies |
+| --- | --- |
+| `test_long_messages_are_split_at_line_breaks` · `test_telegram_detects_the_latest_chat_…` · `test_telegram_paces_splits_retries_once_…` | 4096-character split; chat detection and the webhook-active case; one message per second, `retry_after` honoured once, PDF sent |
+| `test_telegram_errors_are_codes_and_never_carry_the_token` | Failures are short codes, no exception chain, the bot token is not in any log |
+| `test_recipients_are_addresses_only` · `test_gmail_login_errors_are_codes` | Recipient parsing; 535 / data error / network → `auth_failed` / `failed` / `unreachable` |
+| `test_nothing_is_saved_unless_the_provider_accepts` | Verify-before-save for both; invalid input and missing chat refused |
+| `test_secrets_live_in_the_keychain_only` | No token, password or chat id in SQLite, logs or an exported backup; the connectors table is emptied in exports; remove deletes the credential |
+| `test_status_survives_an_imported_backup_…` | A credential without a status row reads as ready; a status row without a credential reads as not set up |
+| `test_api_never_returns_a_secret` · `test_api_reports_why_a_connector_is_refused` | API flow (detect chat, save, test, remove) and localized reasons |
+| `test_runs_send_log_no_content_and_prova_stays_with_the_user` | Real runs send; the run log has no body or address; Prova → own address only, `[Test]`/`[Prova]` subject |
+| `test_a_connector_that_is_not_set_up_skips_…` · `test_a_failed_send_fails_the_run_…` | Not set up → step skipped, run goes on; a role is not an address; a revoked App Password fails the run without leaking and marks the connector `error` |
+| `test_builder_is_told_which_connectors_work` · `test_a_change_to_a_sending_step_is_detected` | The connector block in the Builder context; `changes_sends` / `kinds_used` |
+| `test_a_dead_connector_becomes_one_suggestion_…` | One suggestion per connector, closed when it is set up, raised again when a run fails |
 
 ### `test_neon_maintenance.py` — Neon via the anonymous Data API, maintenance alerts (21)
 | Test | Verifies |
@@ -183,15 +200,19 @@ Frontend `suggestions.test.tsx` (8): bulb dot only with unread; snackbar on an S
 | `test_anonymous_grants_are_only_the_two_views` | The SQL grants `anonymous` exactly: USAGE on `public`, SELECT on the two views |
 | `test_neon_models_match_plan_schema` | The 11 Pydantic models match the technical plan's columns exactly |
 
-### `test_auth.py` — ZITADEL, login only (6)
+### `test_auth.py` — Clerk, login only (10)
 | Test | Verifies |
 | --- | --- |
 | `test_pkce_pair` | S256 challenge matches the verifier |
-| `test_identity_from_claims` | User, org and roles from the claims; a token without an org is refused |
+| `test_access_token_is_verified_against_the_jwks` | RS256 JWT checked against the JWKS; wrong issuer, wrong client, wrong key and an expired token are refused |
+| `test_identity_needs_an_organisation` | `sub`, `org_id` and the userinfo email; a token without `org_id` is refused |
 | `test_protected_routes_require_login` | 401 on product routes; `/health` and system status stay public |
-| `test_login_flow` | Login URL (PKCE, login hint, redirect, scopes) → callback → session → `/me` → state is single-use → logout → 401 |
+| `test_login_flow_hands_the_session_to_the_app_window` | `POST /auth/login` (S256, redirect `/callback`, scopes, no login hint) → `/callback` redirects to `/auth/done?status=ok` and sets **no cookie** → the poll sets `husk_session` once → state single-use → Clerk calls carry the User-Agent → logout revokes |
+| `test_no_organisation_and_cancelled_are_reported_to_the_app` | The browser and the app window both learn why a login failed |
+| `test_a_web_page_cannot_redeem_or_start_a_login` | A foreign Origin gets 403; an unknown poll id is "expired" |
+| `test_tokens_are_never_persisted_or_logged` | Access token, refresh token, code and poll id are absent from logs and SQLite; the refresh token is in the keychain store |
 | `test_no_guest_or_signup_routes` | The API has no guest, ospite, signup or register routes |
-| `test_settings_roundtrip` | Theme and personality saved |
+| `test_settings_roundtrip` | Theme, personality and `connectors_onboarded` saved |
 
 ### `test_backup.py` — single-file export/import (4)
 | Test | Verifies |
@@ -217,23 +238,25 @@ Frontend `suggestions.test.tsx` (8): bulb dot only with unread; snackbar on an S
 | `test_internal_requires_launch_secret` | `/internal/*` without the launch secret → 403 |
 | `test_data_dir_env_override` / `test_default_data_dir_is_os_app_data` | `HUSK_DATA_DIR` override; default is the OS app-data folder |
 | `test_logs_scrub_personal_data` | Email, phone and codice fiscale are scrubbed from logs |
+| `test_logs_scrub_credentials_in_urls_and_headers` | Telegram bot tokens in URLs, OAuth `code`/`state`, bearer tokens and JWTs are scrubbed, including `%s` placeholders |
 
-### Frontend — `app/frontend/src/test/` (38)
+### Frontend — `app/frontend/src/test/` (84)
 - `ui.test.tsx` (3): login has no guest option · the Studio link appears only when a URL exists · agent markdown is rendered safely.
 - `i18n.test.tsx` (29): catalogue parity · `translate()` interpolation, plurals and fallback · browser-language detection and saved choice · **no hard-coded UI text**: parses every `.tsx` (26 files, one test each) with the TypeScript compiler and fails on JSX text or `placeholder`/`title`/`aria-label`/`alt` literals with letters.
-- `maintenance.test.tsx` (6): the AI-key screen switches the whole UI between English and Italian and remembers the choice (+ the 5 below).
-- `maintenance.test.tsx` (5): schedule helpers (past windows filtered, next blocking window) · acknowledgements remembered · the startup modal shows once and stays dismissed · windows more than 24 h away are ignored and the English message is used · the AI key screen requires a key, masks it and offers logout.
+- `maintenance.test.tsx` (5): schedule helpers (past windows filtered, next blocking window) · acknowledgements remembered · the startup modal shows once and stays dismissed · windows more than 24 h away are ignored and the English message is used.
+- `login.test.tsx` (7): the login starts, waits and polls; a missing organisation is explained (Italian); cancel; the "Authenticated, you can close this tab" page in both languages and its error variants; the "installation not active" screen.
+- `connectors.test.tsx` (11): every guide step, link, tip and note exists in English and Italian · the guide popup with its links · the first-login popup (remembered once, hidden when seen or when all connectors work) · Telegram setup (detect chat → save → the token is emptied) and a refused token · Gmail validation, test and remove · the suggestion card sends the user to Settings ("Reconnect" when the connector stopped).
 
 ## Coverage: where it is thin
 
 | Module | Cover | Why / what's missing |
 | --- | --- | --- |
-| `gateways/regolo/provider.py` | 74% | Key lookup and validation are tested; the real chat client is never called (the scripted model replaces it). Needs a live smoke test |
+| `gateways/gateway/` | not measured | Transport, errors, rate gate, provider and decision adapter are tested against a mocked gateway; the real gateway is never called (the CTO runs the live calls). Needs a live smoke test |
 | `core/automations/actions.py` | 51% | Desktop notifications, Excel output and writing to a custom folder are untested |
 | `gateways/studio/client.py` | 53% | Real MCP sessions are mocked out |
 | `core/events.py` | 54% | SSE back-pressure and the event replay buffer are untested |
 | `endpoints/v1/system.py` | 54% | `/internal/studio-token` success path (needs a launch secret and a refresh token) |
-| `gateways/zitadel/token_store.py` | 57% | The OS keychain path is disabled in tests |
+| `gateways/clerk/tokens.py`, `gateways/connectors/secrets.py` | not measured | The OS keychain path is disabled in tests (in-memory store) |
 | `core/automations/scheduler.py` | 64% | Real cron firing and folder watching are not exercised |
 
 ## Offline benchmarks (same run)
@@ -259,7 +282,9 @@ AI-quality numbers (hours discovered against the ~702 h/year of planted repetiti
 | Visual check | The editor canvas was empty because React Flow needs a parent with a height | Canvas container takes the full height |
 | Visual check | Sidebar items overflowed and their icons collapsed; every document looked selected | Truncation fixed; active state now follows the selected document |
 | Binary build | `--collect-all mcp` pulled in `mcp.cli`, which needs `typer` | Collect only data-carrying packages; exclude `mcp.cli` |
-| Code review (AI key) | Backup import read the user's key *after* the database was replaced, so the key would have been lost | The key is read before the import and restored afterwards (`test_key_never_exported_but_survives_import`) |
+| Code review (AI key, Oct 4) | Backup import read the user's key *after* the database was replaced | Obsolete: AI keys no longer exist on the machine |
+| `test_telegram_errors_are_codes_and_never_carry_the_token` (Oct 6) | **httpx logs every request URL at INFO, and a Telegram Bot API URL contains the bot token**: it would have reached `husk.log` | `httpx`/`httpcore` loggers kept at WARNING; the log scrubber also redacts `bot<id>:<token>`, OAuth query parameters, bearer tokens and JWTs, including `%s` arguments; no uvicorn access log (the `/callback` request line carries the OAuth code) |
+| Benchmarks (Oct 6) | The live benchmarks build services through the product wiring, which no longer has a direct provider | Direct Regolo/OpenRouter and Venice providers moved to `benchmarks/direct.py`; offline runs use the deterministic fake decision model |
 | Visual check | The countdown banner made the page taller than the window and cut off the sidebar | The shell is clipped to the viewport; content scrolls inside |
 | Visual check | The maintenance date was Title-Cased ("Dalle … Alle") | Only the first letter is capitalised |
 | Provider refactor | A text splice duplicated half of `regolo/provider.py` (end marker matched an earlier `chat_model`) | File rebuilt; caught immediately by the suite |
@@ -273,10 +298,11 @@ AI-quality numbers (hours discovered against the ~702 h/year of planted repetiti
 
 ## What is not tested
 
-- [ ] **Live Regolo model**: discovery quality, real tool-calling and structured outputs on the chosen model (`benchmarks --live`), and a real key being accepted or refused by `/models`
+- [ ] **Live gateway**: chat, `/v1/decide` on `jev-latest` (first live run, Oct 6: 502/429 because the gateway called Venice's chat endpoint instead of `/api/v1/decisions`), entitlement and usage with a real Clerk token; discovery quality and recall with the new decision model (the gates were tuned on Jev); how long a full discovery takes under the 60 requests/minute limit
+- [ ] **Real Telegram and Gmail**: create a bot with @BotFather, detect the chat, send a test and a PDF; a Gmail App Password (and the failure when it is revoked)
 - [ ] **Real model following the language instruction** (Italian vs English output from gpt-oss-120b on Regolo)
 - [ ] **Desktop notification** on Windows (only macOS `osascript` and Linux `notify-send` are wired)
-- [ ] **Real ZITADEL**: hosted login, refresh, logout redirect, project roles in tokens, sign-up disabled on the instance
+- [ ] **Real Clerk login**: the system browser flow end to end (webview and browser), the redirect `http://127.0.0.1:8765/callback`, an organisation in the token, refresh after 24 h, revoke on sign-out, and whether a second login reuses the browser's Clerk session
 - [ ] **Real Neon Data API** (after enabling Neon Auth): the anonymous token is issued and accepted, PostgREST filters on the views, and that only the two views are readable
 - [ ] **Running Husk Studio**: OTLP spans arriving, MCP tool names, the run deep-link route
 - [ ] **Real scheduling**: a cron trigger firing and a watched folder reacting while Husk runs

@@ -1,13 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ShieldCheck, Upload } from "lucide-react";
+import { Download, Mail, Send, ShieldCheck, Upload } from "lucide-react";
 import { useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Personality, PersonalityId } from "../api/types";
+import { ConnectorModal } from "../components/ConnectorModal";
+import { ConnectorStatus } from "../components/ConnectorStatus";
 import { TopBar } from "../components/TopBar";
 import { LanguageSwitch } from "../components/LanguageSwitch";
 import { locale, useI18n } from "../i18n";
-import { AI_KEY_MIN, AiKeyField } from "../components/AiKeyField";
-import { useAiKey, useMe, useSystem } from "../lib/hooks";
+import { CONNECTOR_KINDS, useConnectors, type ConnectorKind } from "../lib/connectors";
+import { useMe, useSystem } from "../lib/hooks";
 import { useTheme } from "../lib/theme";
 
 export function Settings() {
@@ -21,26 +24,14 @@ export function Settings() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const { data: aiKey } = useAiKey();
-  const [newKey, setNewKey] = useState<string | null>(null);
-  const [keyMsg, setKeyMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const { data: connectors } = useConnectors();
+  const [params, setParams] = useSearchParams();
+  const fromLink = params.get("connector");  // a suggestion sends the user here: open that connector's setup
+  const [modal, setModal] = useState<{ kind: ConnectorKind; tab: "guide" | "setup" } | null>(
+    CONNECTOR_KINDS.includes(fromLink as ConnectorKind) ? { kind: fromLink as ConnectorKind, tab: "setup" } : null,
+  );
+  const closeModal = () => { setModal(null); if (params.has("connector")) { params.delete("connector"); setParams(params, { replace: true }); } };
   if (!me) return null;
-  const removeKey = async () => {
-    await api.del("/api/v1/user/ai-key");
-    await qc.invalidateQueries({ queryKey: ["ai-key"] });  // no key left: the app returns to the key screen
-  };
-  const saveKey = async () => {
-    if (!newKey) return;
-    setKeyMsg(null);
-    try {
-      await api.put("/api/v1/user/ai-key", { api_key: newKey.trim() });
-      setNewKey(null);
-      setKeyMsg({ ok: true, text: t("settings.ai_key_saved") });
-      qc.invalidateQueries({ queryKey: ["ai-key"] });
-    } catch (e) {
-      setKeyMsg({ ok: false, text: (e as Error).message });
-    }
-  };
   const name = me.user.display_name || me.user.email || t("common.user");
 
   const setPersonality = async (p: PersonalityId) => {
@@ -48,9 +39,9 @@ export function Settings() {
     qc.invalidateQueries({ queryKey: ["me"] });
   };
   const logout = async () => {
-    const r = await api.post<{ end_session_url?: string | null }>("/api/v1/user/auth/logout");
+    await api.post("/api/v1/user/auth/logout");
     qc.clear();
-    window.location.href = r.end_session_url || "/accesso";
+    window.location.href = "/accesso";
   };
   const doImport = async (f: File) => {
     if (!confirm(t("settings.import_confirm"))) return;
@@ -90,26 +81,6 @@ export function Settings() {
 
           <div className="card settings-card">
             <div className="setting">
-              <div className="txt">
-                <b>{t("settings.ai_key")}</b>
-                <span>{t(aiKey?.source === "env" ? "settings.ai_key_env" : "settings.ai_key_desc")}</span>
-              </div>
-              {newKey === null ? (
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <span className="mono" style={{ fontSize: 12 }}>{t("settings.ai_key_hints", { regolo: aiKey?.hint ?? "—", venice: aiKey?.decision_hint ?? "—" })}</span>
-                  <button className="btn sm" onClick={() => setNewKey("")}>{t("settings.change")}</button>
-                  {aiKey?.source === "user" && <button className="btn sm ghost" onClick={removeKey}>{t("settings.ai_key_remove")}</button>}
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <AiKeyField id="new-ai-key" compact value={newKey} onChange={setNewKey} placeholder={t("settings.new_key")} autoFocus />
-                  <button className="btn sm primary" disabled={newKey.trim().length < AI_KEY_MIN} onClick={saveKey}>{t("settings.verify")}</button>
-                  <button className="btn sm ghost" onClick={() => { setNewKey(null); setKeyMsg(null); }}>{t("common.cancel")}</button>
-                </div>
-              )}
-            </div>
-            {keyMsg && <div className={`alert ${keyMsg.ok ? "info" : ""}`} style={{ marginBottom: 14 }}>{keyMsg.text}</div>}
-            <div className="setting">
               <div className="txt"><b>{t("settings.personality")}</b><span>{personalities?.find((p) => p.id === me.settings.personality)?.description}</span></div>
               <select className="input" style={{ width: 190, height: 38 }} value={me.settings.personality} onChange={(e) => setPersonality(e.target.value as PersonalityId)}>
                 {personalities?.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -133,6 +104,32 @@ export function Settings() {
               </div>
               <span className="ok-badge"><ShieldCheck size={13} /> {t("settings.privacy_badge")}</span>
             </div>
+          </div>
+
+          <div className="card settings-card">
+            <div className="setting">
+              <div className="txt"><b>{t("connectors.section_title")}</b><span>{t("connectors.section_desc")}</span></div>
+            </div>
+            {CONNECTOR_KINDS.map((k) => {
+              const c = connectors?.find((x) => x.kind === k);
+              return (
+                <div className="setting" key={k}>
+                  <span className="icon-tile">{k === "telegram" ? <Send size={18} /> : <Mail size={18} />}</span>
+                  <div className="txt">
+                    <b>{t(`connectors.${k}.title`)}</b>
+                    <span>{c?.hint ?? t(`connectors.desc_${k}`)}</span>
+                    {c?.state === "error" && c.last_error && <span style={{ color: "var(--danger)" }}> · {t("connectors.last_error", { reason: t(`connectors.error_${c.last_error}`) })}</span>}
+                  </div>
+                  <ConnectorStatus connector={c} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn sm" onClick={() => setModal({ kind: k, tab: "guide" })}>{t("connectors.guide")}</button>
+                    <button className="btn sm primary" onClick={() => setModal({ kind: k, tab: "setup" })}>
+                      {t(c && c.state !== "not_configured" ? "connectors.change" : "connectors.setup")}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="card settings-card">
@@ -163,6 +160,7 @@ export function Settings() {
           </div>
         </div>
       </div>
+      {modal && <ConnectorModal kind={modal.kind} initialTab={modal.tab} onClose={closeModal} />}
     </>
   );
 }

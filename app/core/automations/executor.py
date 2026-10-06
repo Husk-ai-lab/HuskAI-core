@@ -10,10 +10,12 @@ from pydantic import BaseModel, Field
 
 from app.core.agents.harness.context import AgentContext
 from app.core.agents.harness.llm import human, structured, system
-from app.core.automations.actions import run_action
+from app.core.automations.actions import action_body, render_template, run_action
 from app.core.automations.decision import DecisionProvider, LLMDecisionProvider
 from app.core.knowledge.ingest import convert, kind_for
 from app.data.models.automation import (
+    ActionNode,
+    ActionType,
     AgentNode,
     Automation,
     AutomationRun,
@@ -23,11 +25,13 @@ from app.data.models.automation import (
     NodeRunLog,
     RunTrigger,
 )
+from app.data.models.connector import ConnectorKind
 from app.gateways.studio.tracing import exporting, span
 from app.helpers.ids import new_id
 from app.helpers.logging import get_logger
 from app.helpers.text import truncate
 from app.helpers.time import utcnow
+from app.i18n import t
 
 log = get_logger("executor")
 MAX_STEPS = 60
@@ -133,8 +137,13 @@ class AutomationExecutor:
                     branch = "vero" if ok else "falso"
                     entry = NodeRunLog(node_id=nid, label=node.label, status="ok",
                                        output={"field": node.field, "value": lookup(state, node.field), "outcome": branch})
+                elif node.kind == "action" and node.action.connector:
+                    status, output, message = await self._send(node, state, a, test_mode)
+                    entry = NodeRunLog(node_id=nid, label=node.label, status=status, output=output, message=message)
                 elif node.kind == "action":
                     status, output, message = run_action(node, state, out_dir, a.title, test_mode, self.ctx.language)
+                    if node.action == ActionType.pdf_report and status == "ok" and isinstance(output, str):
+                        state["_report"] = output  # a later send step can attach it
                     entry = NodeRunLog(node_id=nid, label=node.label, status=status, output=output, message=message)
                 else:
                     entry = NodeRunLog(node_id=nid, label=node.label, status="skipped")
@@ -146,6 +155,24 @@ class AutomationExecutor:
             entry.duration_ms = int((time.perf_counter() - t0) * 1000)
             run.log.append(entry)
             frontier += g.successors(nid, branch) if node.kind in ("decision", "condition") else g.successors(nid)
+
+    async def _send(self, node: ActionNode, state: dict[str, Any], a: Automation, test_mode: bool) -> tuple[str, Any, str]:
+        """Telegram / email through the connector. Not set up → the step is skipped (the run goes on, a suggestion
+        asks the user to set the connector up); the send itself failing fails the run. The log keeps no body."""
+        lang = self.ctx.language
+        kind = ConnectorKind(node.action.connector)
+        if self.ctx.connectors is None:
+            return "skipped", {"connector": kind.value, "reason": "not_configured"}, t(
+                "run.connector_not_ready", lang, connector=t(f"connectors.name_{kind.value}", lang))
+        report = state.get("_report")
+        attachment = Path(report) if node.attach_report and report and Path(report).is_file() else None
+        res = await self.ctx.connectors.send(
+            self.ctx.org_id, kind, subject=render_template(node.subject, state, node.label or a.title),
+            body=action_body(node, state), target=node.target, attachment=attachment, test_mode=test_mode, lang=lang)
+        message = t(res.message_key, lang, **res.params)
+        if res.status == "error":
+            raise RuntimeError(message)
+        return res.status, res.output, message
 
     def _state_text(self, state: dict[str, Any]) -> str:
         return "\n".join(f"{k}: {truncate(str(v), 1500)}" for k, v in state.items() if not k.startswith("_"))

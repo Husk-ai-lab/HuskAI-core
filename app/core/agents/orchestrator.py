@@ -79,10 +79,12 @@ def _chain(exc: BaseException):  # type: ignore[no-untyped-def]
 
 
 class DiscoveryOrchestrator:
-    def __init__(self, ctx: AgentContext, events: EventHub, is_blocked: Callable[[], bool] = lambda: False):
+    def __init__(self, ctx: AgentContext, events: EventHub, is_blocked: Callable[[], bool] = lambda: False,
+                 on_draft: Callable[[Automation], None] | None = None):
         self.ctx = ctx
         self.events = events
         self.is_blocked = is_blocked
+        self.on_draft = on_draft  # e.g. report a connector the new draft needs but is not set up
         self.runs = DiscoveryRepo(ctx.db, ctx.org_id)
         self.ckpt = CheckpointRepo(ctx.db, ctx.org_id)
         self.automations = AutomationRepo(ctx.db, ctx.org_id)
@@ -408,6 +410,8 @@ class DiscoveryOrchestrator:
                     priority=opp.priority.value, network_id=net.id, run_id=run.id,
                 )
                 self.automations.save(auto, change_note=t("agent.change_note_draft", self.ctx.language), author="builder")
+                if self.on_draft:
+                    self.on_draft(auto)
                 self.ctx.memory.networks.keep(net.id, auto.id)
                 self.ctx.memory.networks.write_summary(auto.id, net.id, await self.builder.summarize(auto.title, net))
             async with lock:  # per-automation checkpoint

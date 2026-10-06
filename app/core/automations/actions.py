@@ -1,4 +1,5 @@
-"""Local-only actions. Email and ERP updates are simulated in this phase."""
+"""Local actions (files, PDF, Excel, desktop notification, log). Telegram and email go through the connectors
+(`core/connectors`, called by the executor); ERP updates are simulated in this phase."""
 
 from __future__ import annotations
 
@@ -50,19 +51,25 @@ def notify_desktop(title: str, message: str) -> bool:
     return False
 
 
-def run_action(node: ActionNode, state: dict[str, Any], out_dir: Path, automation_title: str,
-               test_mode: bool, lang: str = "en") -> tuple[str, Any, str]:
-    """Returns (status, output, message). status: ok | simulated."""
+def action_body(node: ActionNode, state: dict[str, Any]) -> str:
+    """The message/report body: the node's template filled from the run state, else a summary of the run."""
     summary = state.get("_summary") or "\n".join(
         f"{k}: {v}" for k, v in state.items() if not k.startswith("_") and k != "trigger"
     )
-    body = render_template(node.template, state, summary)
+    return render_template(node.template, state, summary)
+
+
+def run_action(node: ActionNode, state: dict[str, Any], out_dir: Path, automation_title: str,
+               test_mode: bool, lang: str = "en") -> tuple[str, Any, str]:
+    """Returns (status, output, message). status: ok | simulated."""
+    if node.action.connector:
+        raise RuntimeError("connector actions are sent by the executor through the connectors")
+    body = action_body(node, state)
     stamp = state.get("_stamp", "run")
     name = slug(node.label, 40)
     if node.action.simulated:
-        key = "run.simulated_email" if node.action == ActionType.email else "run.simulated_erp"
         return "simulated", {"target": node.target, "body": body[:2000]}, t(
-            key, lang, target=node.target or t("run.not_configured", lang))
+            "run.simulated_erp", lang, target=node.target or t("run.not_configured", lang))
     if node.action == ActionType.log:
         log.info("automation log node=%s", node.id)
         return "ok", body[:2000], t("run.logged", lang)

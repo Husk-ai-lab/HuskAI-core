@@ -164,7 +164,7 @@ def test_edited_suggestion_is_the_users_own_request(client: TestClient, services
     events = _send(client, chat["id"], "Avvisa anche gli Acquisti, per favore", suggestion_id=s["id"])
     user = next(d for n, d in events if n == "user")
     assert "origin" not in user["meta"] and user["meta"]["suggestion_id"] == s["id"]
-    assert "patch" in [e[0] for e in events]  # normal personality behaviour
+    assert "proposal" in [e[0] for e in events]  # adding an email step: a send step is always a proposal
 
 
 def test_discarding_the_proposal_dismisses_the_suggestion(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
@@ -239,7 +239,7 @@ def test_upload_batches_are_debounced_into_one_job(client: TestClient, services,
     assert len(calls) == 1 and len(calls[0]) == 3
 
 
-def test_no_ai_key_means_no_analysis(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
+def test_not_signed_in_to_the_gateway_means_no_analysis(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
     _discovered(client)
     _fast(services)
     services.llm.configured_for = lambda _uid: False
@@ -280,4 +280,5 @@ def test_documents_covered_by_discovery_are_not_reanalysed(client: TestClient, s
     client.portal.call(services.suggestions.enqueue, ORG, "user_test", ids)  # type: ignore[union-attr]
     _wait_idle(client)
     assert services.llm.calls == before
-    assert client.get("/api/v1/suggestions?status=all").json() == []
+    # no document suggestion (the only open one is "set up the connector the drafts send through")
+    assert [s for s in client.get("/api/v1/suggestions?status=all").json() if s["kind"] != "configure_connector"] == []

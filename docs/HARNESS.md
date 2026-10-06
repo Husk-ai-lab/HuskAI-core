@@ -64,9 +64,9 @@ Discovery is a full pass. After it, documents keep arriving: `core/suggestions/e
   1. Explorer `analyze` on each new document → company profile updated through the ≤30-fact rule. Any added/replaced fact becomes one informational `memory_update` suggestion.
   2. Documents with signal ≥ 0.15 → BM25 shortlist of automations (shared vocabulary with their documents, or title words), at most 6 → Explorer `suggest_changes` (structured) proposes `modify_automation` / `new_automation`.
   3. **Code-side checks**: evidence must cite real chunks of *that* document (a quote not found verbatim is replaced by the passage), confidence ≥ 0.6, known automation id, no duplicate open suggestion.
-  * No completed discovery yet → a single `run_discovery` suggestion, no LLM call. No AI key or a blocking maintenance window → no job.
+  * No completed discovery yet → a single `run_discovery` suggestion, no LLM call. Not signed in to the gateway or a blocking maintenance window → no job.
 * **Delete** → `source_deleted` for every automation whose documents or notes cite the file (fixed localized prompt, no LLM); open suggestions based on that file are dismissed.
-* **Applying**: `new_automation` → research into a new network + Builder draft (like discovery step 7, `run_id = None` so "Analyze again" never retires it). `modify_automation` / `source_deleted` → only through the Builder chat (below). An accepted proposal marks the suggestion applied and, for `modify_automation`, researches the new document into the automation's network (notes rewritten whole) and refreshes its summary.
+* **Applying**: `configure_connector` is the one suggestion not about documents (see [CONNECTORS.md](CONNECTORS.md)). `new_automation` → research into a new network + Builder draft (like discovery step 7, `run_id = None` so "Analyze again" never retires it). `modify_automation` / `source_deleted` → only through the Builder chat (below). An accepted proposal marks the suggestion applied and, for `modify_automation`, researches the new document into the automation's network (notes rewritten whole) and refreshes its summary.
 
 ### Self-heal messages
 

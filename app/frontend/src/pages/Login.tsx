@@ -1,6 +1,6 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
-import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { LanguageSwitch } from "../components/LanguageSwitch";
 import { Brand } from "../components/Logo";
@@ -9,18 +9,48 @@ import { ThemeToggle } from "../components/TopBar";
 import { useT } from "../i18n";
 import { useSystem } from "../lib/hooks";
 
-const LOGIN_ERRORS = ["cancelled", "failed"];
+const POLL_MS = 1500;
+const GIVE_UP_MS = 10 * 60 * 1000;
+const LOGIN_ERRORS = ["cancelled", "failed", "no_org", "unreachable", "expired"];
 
-/** Login only (no guest, no sign-up). Credentials are typed on ZITADEL's hosted page (OIDC + PKCE). */
+interface Started { url: string; poll_id: string }
+interface Polled { status: "pending" | "ok" | "error"; reason?: string | null }
+
+/** Login only (no guest, no sign-up). The backend opens the system browser on Clerk's hosted page (OAuth + PKCE);
+ *  this window waits and redeems the one-time poll id, so it works the same in a native webview and in a browser. */
 export function Login() {
   const t = useT();
-  const [params] = useSearchParams();
-  const code = params.get("error");
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(code && LOGIN_ERRORS.includes(code) ? `login.error_${code}` : null);
-  const [rawError, setRawError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const { data: sys } = useSystem();
+  const [busy, setBusy] = useState(false);
+  const [started, setStarted] = useState<Started | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [rawError, setRawError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const since = useRef(0);
+
+  const fail = (reason?: string | null) => {
+    setStarted(null);
+    setError(`login.error_${LOGIN_ERRORS.includes(reason ?? "") ? reason : "failed"}`);
+  };
+
+  useEffect(() => {
+    if (!started) return;
+    const id = window.setInterval(async () => {
+      if (Date.now() - since.current > GIVE_UP_MS) return fail("expired");
+      try {
+        const r = await api.post<Polled>("/api/v1/user/auth/poll", { poll_id: started.poll_id });
+        if (r.status === "ok") {
+          setStarted(null);
+          qc.invalidateQueries({ queryKey: ["me"] });
+        } else if (r.status === "error") fail(r.reason);
+      } catch {
+        /* the backend is local: a missed poll is retried on the next tick */
+      }
+    }, POLL_MS);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started]);
 
   const go = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,12 +58,22 @@ export function Login() {
     setError(null);
     setRawError(null);
     try {
-      const q = email ? `?login_hint=${encodeURIComponent(email)}` : "";
-      const { url } = await api.get<{ url: string }>(`/api/v1/user/auth/login${q}`);
-      window.location.href = url;
+      const s = await api.post<Started>("/api/v1/user/auth/login");
+      since.current = Date.now();
+      setStarted(s);
     } catch (err) {
       setRawError((err as Error).message);
+    } finally {
       setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(started!.url);
+      setCopied(true);
+    } catch {
+      /* clipboard blocked: the link is still shown */
     }
   };
 
@@ -54,19 +94,29 @@ export function Login() {
       <section className="login-right">
         <div className="theme" style={{ display: "flex", gap: 8 }}><LanguageSwitch compact /><ThemeToggle /></div>
         <form className="login-form" onSubmit={go}>
-          <h2>{t("login.title")}</h2>
-          <p className="sub">{t("login.subtitle")}</p>
-          <div className="field">
-            <label htmlFor="email">{t("login.email_label")}</label>
-            <input id="email" className="input" type="email" autoComplete="username" placeholder={t("login.email_placeholder")}
-                   value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <button className="btn primary lg" type="submit" disabled={busy || sys?.zitadel_configured === false}>
-            {busy ? t("login.opening") : t("login.submit")}
-          </button>
+          {started ? (
+            <>
+              <h2>{t("login.waiting_title")}</h2>
+              <p className="sub">{t("login.waiting_body")}</p>
+              <div className="spinner" style={{ margin: "6px 0 14px" }} />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <a className="btn" href={started.url} target="_blank" rel="noreferrer">{t("login.open_again")}</a>
+                <button type="button" className="btn ghost" onClick={copy}>{copied ? t("login.link_copied") : t("login.copy_link")}</button>
+                <button type="button" className="btn ghost" onClick={() => setStarted(null)}>{t("login.cancel")}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2>{t("login.title")}</h2>
+              <p className="sub">{t("login.subtitle")}</p>
+              <button className="btn primary lg" type="submit" disabled={busy || sys?.login_configured === false}>
+                {t("login.submit")}
+              </button>
+            </>
+          )}
           {(error || rawError) && <div className="alert">{rawError ?? t(error!)}</div>}
           <MaintenanceBanner compact />
-          {sys?.zitadel_configured === false && <div className="alert info">{t("login.not_configured")}</div>}
+          {sys?.login_configured === false && <div className="alert info">{t("login.not_configured")}</div>}
           <p className="login-note">{t("login.note")}</p>
         </form>
       </section>

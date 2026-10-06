@@ -41,8 +41,10 @@ class StepDraft(BaseModel):
     op: ConditionOp | None = None
     value: float | str | None = None
     action: ActionType | None = None
-    target: str | None = None
+    target: str | None = Field(None, description="email: recipient address(es); folder or ERP entity for other actions")
     template: str | None = None
+    subject: str | None = Field(None, description="email: subject")
+    attach_report: bool = Field(False, description="email/telegram: attach the PDF of an earlier pdf_report step")
 
 
 class FlowDraft(BaseModel):

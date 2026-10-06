@@ -1,4 +1,4 @@
-"""Account: ZITADEL login (login only — no guest, no sign-up), profile, settings, usage,
+"""Account: Clerk login (login only — no guest, no sign-up), profile, settings, usage,
 and the single-file backup (export everything / import)."""
 
 from __future__ import annotations
@@ -6,22 +6,22 @@ from __future__ import annotations
 import asyncio
 import shutil
 import tempfile
+import webbrowser
 from datetime import timedelta
 from pathlib import Path
+from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.core.services import Services
 from app.data.models.user import Me, User, UserSettings, UserSettingsPatch
 from app.endpoints.deps import SESSION_COOKIE, CurrentUser, current_user, get_services
-from app.gateways.decisions.jev import VeniceKeyRejected
-from app.gateways.regolo.key_store import mask, split_keys
-from app.gateways.regolo.provider import KeyRejected
+from app.gateways.clerk.oidc import ClerkError
+from app.gateways.gateway.errors import GatewayError
 from app.gateways.sqlite.backup import BackupError, export_backup, import_backup
 from app.gateways.sqlite.repositories import SessionRepo, UsageRepo, UserRepo
-from app.gateways.zitadel.oidc import ZitadelError, identity_from_claims
 from app.helpers.ids import new_secret
 from app.helpers.logging import get_logger
 from app.helpers.time import utcnow
@@ -30,40 +30,52 @@ from app.i18n.errors import api_error, from_localized
 log = get_logger("auth")
 
 router = APIRouter(prefix="/api/v1/user", tags=["user"])
-callback_router = APIRouter(tags=["auth"])  # mounted at root: /auth/callback (plan contract)
+callback_router = APIRouter(tags=["auth"])  # mounted at root: /callback (the OAuth redirect URI)
 
 SESSION_DAYS = 30
 
 
-class LoginUrl(BaseModel):
-    url: str
-
-
 class AuthConfig(BaseModel):
     configured: bool
-    issuer: str | None
 
 
-class LogoutResult(BaseModel):
-    end_session_url: str | None = None
+class LoginStart(BaseModel):
+    url: str  # the Clerk page, also shown in the UI in case the browser did not open
+    poll_id: str  # secret held by the app window only; redeemed once by /auth/poll
+
+
+class PollIn(BaseModel):
+    poll_id: str = Field(..., min_length=16, max_length=200)
+
+
+class PollOut(BaseModel):
+    status: Literal["pending", "ok", "error"]
+    reason: str | None = None
 
 
 @router.get("/auth/config", response_model=AuthConfig)
 def auth_config(services: Services = Depends(get_services)) -> AuthConfig:
-    s = services.settings
-    return AuthConfig(configured=s.zitadel_configured, issuer=s.zitadel_issuer)
+    return AuthConfig(configured=services.settings.clerk_configured)
 
 
-@router.get("/auth/login", response_model=LoginUrl)
-async def login(login_hint: str | None = None, services: Services = Depends(get_services)) -> LoginUrl:
+@router.post("/auth/login", response_model=LoginStart)
+async def login(services: Services = Depends(get_services)) -> LoginStart:
+    """Start the Clerk login in the SYSTEM browser (the UI may be a native webview). The browser finishes at
+    /callback; this window then redeems `poll_id` at /auth/poll to get its own session cookie."""
     try:
-        url, _state = await services.zitadel.authorize_url(login_hint=login_hint)
-    except ZitadelError as exc:
+        url, state = await services.clerk.authorize_url()
+    except ClerkError as exc:
         from_localized(exc)
     except Exception as exc:
-        log.warning("zitadel discovery failed: %s", type(exc).__name__)
+        log.warning("clerk discovery failed: %s", type(exc).__name__)
         api_error(503, "errors.login_unreachable")
-    return LoginUrl(url=url)
+    poll_id = services.logins.begin(state)
+    if services.settings.open_browser:
+        try:
+            await asyncio.to_thread(webbrowser.open, url)
+        except Exception as exc:  # the UI shows the link as a fallback
+            log.warning("could not open the browser: %s", type(exc).__name__)
+    return LoginStart(url=url, poll_id=poll_id)
 
 
 def _frontend(services: Services, path: str = "/") -> str:
@@ -71,54 +83,94 @@ def _frontend(services: Services, path: str = "/") -> str:
     return (base.rstrip("/") + path) if base else path
 
 
-@callback_router.get("/auth/callback", include_in_schema=False)
+def _done(services: Services, status: str, reason: str | None = None) -> RedirectResponse:
+    q = f"?status={status}" + (f"&reason={reason}" if reason else "")
+    return RedirectResponse(_frontend(services, "/auth/done" + q))
+
+
+@callback_router.get("/callback", include_in_schema=False)
 async def auth_callback(
-    request: Request, code: str | None = None, state: str | None = None, error: str | None = None,
+    code: str | None = None, state: str | None = None, error: str | None = None,
     services: Services = Depends(get_services),
 ) -> RedirectResponse:
+    """Runs in the system browser. Sets NO cookie: it records the result for the app window and shows
+    the "you can close this tab" page."""
     if error or not code or not state:
-        return RedirectResponse(_frontend(services, "/accesso?error=cancelled"))
+        services.logins.fail(state, "cancelled")
+        return _done(services, "error", "cancelled")
     try:
-        tokens = await services.zitadel.exchange(code, state)
-        ident = identity_from_claims(tokens.claims)
-    except ZitadelError as exc:
-        log.warning("login failed: %s", exc)
-        return RedirectResponse(_frontend(services, "/accesso?error=failed"))
-    user = User(
-        id=ident.user_id, org_id=ident.org_id, org_name=ident.org_name, email=ident.email,
-        display_name=ident.name, roles=ident.roles,
-    )
+        tokens = await services.clerk.exchange(code, state)
+        ident = await services.clerk.identity(tokens)
+    except ClerkError as exc:
+        reason = "no_org" if exc.key == "errors.login_no_org" else "unreachable" if exc.status == 503 else "failed"
+        log.warning("login failed: %s", reason)
+        services.logins.fail(state, reason)
+        return _done(services, "error", reason)
+    user = User(id=ident.user_id, org_id=ident.org_id, email=ident.email, display_name=ident.name)
     UserRepo(services.db).upsert(user)
     services.tokens.save_refresh(user.id, tokens.refresh_token)
-    services.tokens.set_access(user.id, tokens.access_token, tokens.expires_at, tokens.id_token)
+    services.tokens.set_access(user.id, tokens.access_token, tokens.expires_at)
     services.db.kv_set("last_user_id", user.id)
-    sid = new_secret()
-    SessionRepo(services.db).create(sid, user, utcnow() + timedelta(days=SESSION_DAYS))
-    resp = RedirectResponse(_frontend(services, "/"))
-    resp.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax", secure=False,
-                    max_age=SESSION_DAYS * 86400, path="/")
-    return resp
+    try:
+        await services.gateway.me(user.id)  # the gateway registers the user and organisation in Neon
+    except Exception as exc:  # not needed to sign in: it is retried by the gateway on the first protected call
+        log.warning("gateway registration failed: %s", type(exc).__name__)
+    services.logins.complete(state, user.id)
+    return _done(services, "ok")
 
 
-@router.post("/auth/logout", response_model=LogoutResult)
-async def logout(request: Request, services: Services = Depends(get_services)) -> LogoutResult:
+@router.post("/auth/poll", response_model=PollOut)
+def auth_poll(body: PollIn, response: Response, services: Services = Depends(get_services)) -> PollOut:
+    res = services.logins.poll(body.poll_id)
+    if res.status == "ok":
+        user = UserRepo(services.db).get(res.user_id or "")
+        if not user:
+            return PollOut(status="error", reason="failed")
+        sid = new_secret()
+        SessionRepo(services.db).create(sid, user, utcnow() + timedelta(days=SESSION_DAYS))
+        response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax", secure=False,
+                            max_age=SESSION_DAYS * 86400, path="/")
+    return PollOut(status=res.status, reason=res.reason)  # type: ignore[arg-type]
+
+
+@router.post("/auth/logout")
+async def logout(request: Request, services: Services = Depends(get_services)) -> dict:
     sid = request.cookies.get(SESSION_COOKIE)
-    end_url = None
     if sid:
         repo = SessionRepo(services.db)
         uid = repo.resolve(sid)
         repo.delete(sid)
         if uid:
-            id_token = services.tokens.id_token(uid)
+            refresh = services.tokens.load_refresh(uid)
             services.tokens.delete(uid)
-            services.ai_keys.delete(uid)  # the AI key never outlives the session: entered again at next sign-in
-            if services.settings.zitadel_configured:
-                try:
-                    end_url = await services.zitadel.end_session_url(
-                        id_token, f"http://127.0.0.1:{services.settings.port}/accesso")
-                except Exception:
-                    end_url = None
-    return LogoutResult(end_session_url=end_url)
+            if refresh:
+                await services.clerk.revoke(refresh)
+    return {"ok": True}
+
+
+class EntitlementOut(BaseModel):
+    allowed: bool | None  # None = unknown (the gateway cannot be reached and nothing was seen before)
+    status: str
+    source: Literal["gateway", "cache", "unknown"]
+
+
+@router.get("/entitlement", response_model=EntitlementOut)
+async def entitlement(cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)) -> EntitlementOut:
+    """Has this organisation paid? The gateway decides (billing state); the last answer is kept so Husk still opens
+    offline. An unreachable gateway never locks anyone out of their local data."""
+    key = f"entitlement:{cu.org_id}"
+    try:
+        ent = await services.gateway.entitlement(cu.id)
+    except GatewayError as exc:
+        if exc.key == "errors.session_expired":
+            SessionRepo(services.db).delete(cu.session_id)
+            api_error(401, exc.key)
+        cached = services.db.kv_get(key)
+        if cached:
+            return EntitlementOut(allowed=cached["allowed"], status=cached["status"], source="cache")
+        return EntitlementOut(allowed=None, status="unknown", source="unknown")
+    services.db.kv_set(key, {"allowed": ent.allowed, "status": ent.status})
+    return EntitlementOut(allowed=ent.allowed, status=ent.status, source="gateway")
 
 
 @router.get("/me", response_model=Me)
@@ -167,7 +219,6 @@ async def import_all(
     if any(not t.done() for k, t in services.tasks.items() if k.startswith("discovery:")):
         api_error(409, "errors.import_discovery_running")
     services.suggestions.cancel_all()  # pending suggestion jobs refer to documents about to be replaced
-    own_key = services.ai_keys.get(cu.id)  # read before the db is replaced
     with tempfile.TemporaryDirectory() as tmp:
         target = Path(tmp) / "import.db"
         with target.open("wb") as fh:
@@ -176,11 +227,9 @@ async def import_all(
             res = await asyncio.to_thread(import_backup, services.db, services.paths, target, cu.org_id)
         except BackupError as exc:
             from_localized(exc)
-    # Keep the current user signed in and their AI key (neither travels in backups).
+    # Keep the current user signed in (sessions do not travel in backups).
     UserRepo(services.db).upsert(cu.user)
     SessionRepo(services.db).create(cu.session_id, cu.user, utcnow() + timedelta(days=SESSION_DAYS))
-    if own_key:
-        services.ai_keys.set(cu.id, cu.org_id, own_key.api_key, own_key.model, own_key.decision_key)
     services.index.drop()
     for org in res.org_ids:
         await asyncio.to_thread(services.knowledge(org).reindex)
@@ -190,74 +239,3 @@ async def import_all(
         for a in AutomationRepo(services.db, cu.org_id).list():
             services.scheduler.sync(a)
     return ImportResponse(documents=res.documents, files=res.files, safety_copy=res.safety_copy)
-
-
-# --- AI key (simplified BYOK for the MVP: the key is provided by Husk AI) --------------------
-class AiKeyStatus(BaseModel):
-    configured: bool  # both parts present: Regolo (LLM) and Venice (decision model)
-    source: str  # user | env | none
-    hint: str | None = None  # last 4 characters only; the key itself is never returned
-    model: str | None = None
-    verified_at: str | None = None
-    decision_hint: str | None = None
-    decision_model: str | None = None
-
-
-class AiKeyIn(BaseModel):
-    api_key: str = Field(..., min_length=8, max_length=1024)  # combined: Regolo + Venice
-
-
-def _ai_key_status(services: Services, user_id: str) -> AiKeyStatus:
-    own = services.ai_keys.get(user_id)
-    dkey = services.decisions.key_for(user_id) if hasattr(services.decisions, "key_for") else None
-    dhint = mask(dkey) if dkey else None
-    dmodel = getattr(services.decisions, "model_name", None)
-    if own:
-        return AiKeyStatus(configured=bool(dkey), source="user", hint=own.key_hint,
-                           model=own.model or services.llm.model_name, verified_at=own.verified_at,
-                           decision_hint=dhint, decision_model=dmodel)
-    if services.settings.regolo_api_key:  # developer fallback from .env
-        return AiKeyStatus(configured=bool(dkey), source="env", hint=mask(services.settings.regolo_api_key),
-                           model=services.llm.model_name, decision_hint=dhint, decision_model=dmodel)
-    return AiKeyStatus(configured=False, source="none")
-
-
-@router.get("/ai-key", response_model=AiKeyStatus)
-def ai_key_status(cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)) -> AiKeyStatus:
-    return _ai_key_status(services, cu.id)
-
-
-@router.put("/ai-key", response_model=AiKeyStatus)
-async def save_ai_key(body: AiKeyIn, cu: CurrentUser = Depends(current_user),
-                      services: Services = Depends(get_services)) -> AiKeyStatus:
-    """ONE string: the Regolo key followed by the Venice key (`…VENICE_INFERENCE_KEY_…`), split by regex.
-    Saved ONLY after Regolo.ai AND Venice AI accept their part. Rejected or unverifiable keys are not stored."""
-    key, venice = split_keys(body.api_key)
-    if not key:
-        api_error(400, "errors.ai_key_regolo_missing")
-    if not venice:
-        api_error(400, "errors.ai_key_venice_missing")
-    try:
-        models = await services.llm.list_models(key)
-    except KeyRejected:
-        api_error(400, "errors.ai_key_rejected")
-    except Exception:
-        api_error(503, "errors.ai_key_unverifiable")
-    if not models:
-        api_error(400, "errors.ai_key_no_models")
-    try:
-        await services.decisions.verify(venice)
-    except VeniceKeyRejected:
-        api_error(400, "errors.ai_key_venice_rejected")
-    except Exception:
-        api_error(503, "errors.ai_key_venice_unverifiable")
-    await services.llm.resolve_model(key)
-    services.ai_keys.set(cu.id, cu.org_id, key, services.llm.model_name, venice)
-    log.info("ai key verified and saved user=%s", cu.id)
-    return _ai_key_status(services, cu.id)
-
-
-@router.delete("/ai-key", response_model=AiKeyStatus)
-def delete_ai_key(cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)) -> AiKeyStatus:
-    services.ai_keys.delete(cu.id)
-    return _ai_key_status(services, cu.id)
