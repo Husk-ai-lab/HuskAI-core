@@ -6,6 +6,9 @@ runs on its own we fall back to the platform's application-data folder:
     macOS    ~/Library/Application Support/ai.husk.desktop/data/husk
     Windows  %APPDATA%\\ai.husk.desktop\\data\\husk
     Linux    ~/.local/share/ai.husk.desktop/data/husk
+
+On a server (see `helpers/runtime.py`) this fallback is never used: the folder must be given explicitly
+(`python -m app.main --data-dir PATH`).
 """
 
 from __future__ import annotations
@@ -15,9 +18,14 @@ from pathlib import Path
 
 from platformdirs import user_data_dir
 
+from app.helpers.runtime import detect_environment
 from app.helpers.settings import Settings
 
 APP_ID = "ai.husk.desktop"
+
+
+class DataDirRequired(RuntimeError):
+    """Husk runs on a server and was not told where its data goes."""
 
 
 @dataclass(frozen=True)
@@ -71,5 +79,8 @@ def resolve_data_paths(settings: Settings) -> DataPaths:
     if settings.data_dir:
         root = Path(settings.data_dir).expanduser()
     else:
+        info = detect_environment()
+        if info.is_server and settings.env != "test":  # defence in depth: `main.run()` already refuses to start
+            raise DataDirRequired(f"server detected ({', '.join(info.reasons)}): pass --data-dir PATH")
         root = Path(user_data_dir(APP_ID, appauthor=False, roaming=True)) / "data" / "husk"
     return DataPaths(root=root).ensure()

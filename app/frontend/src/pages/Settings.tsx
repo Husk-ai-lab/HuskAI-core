@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import type { Personality, PersonalityId } from "../api/types";
 import { ConnectorModal } from "../components/ConnectorModal";
 import { ConnectorStatus } from "../components/ConnectorStatus";
+import { DeleteDataModal } from "../components/DeleteDataModal";
 import { TopBar } from "../components/TopBar";
 import { LanguageSwitch } from "../components/LanguageSwitch";
 import { locale, useI18n } from "../i18n";
@@ -25,6 +26,7 @@ export function Settings() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const { data: connectors } = useConnectors();
+  const [wipe, setWipe] = useState<{ error: string | null } | null>(null);
   const [params, setParams] = useSearchParams();
   const fromLink = params.get("connector");  // a suggestion sends the user here: open that connector's setup
   const [modal, setModal] = useState<{ kind: ConnectorKind; tab: "guide" | "setup" } | null>(
@@ -59,6 +61,20 @@ export function Settings() {
     } finally {
       setBusy(false);
       if (fileInput.current) fileInput.current.value = "";
+    }
+  };
+
+  const doWipe = async () => {
+    setBusy(true);
+    try {
+      const r = await api.del<{ documents: number; automations: number }>("/api/v1/user/data", { confirm: true });
+      setWipe(null);
+      setMsg({ ok: true, text: t("settings.danger_done", { documents: r.documents, automations: r.automations }) });
+      qc.invalidateQueries();
+    } catch (e) {
+      setWipe({ error: (e as Error).message });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -146,6 +162,13 @@ export function Settings() {
               <div className="txt"><b>{t("settings.data_folder")}</b><span className="mono" style={{ fontSize: 12 }}>{sys?.data_dir}</span></div>
             </div>
             <div className="setting">
+              <div className="txt"><b>{t("settings.danger_title")}</b><span>{t("settings.danger_desc")}</span></div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <a className="btn sm" href="/api/v1/user/data/export" download><Download size={14} /> {t("settings.danger_export_first")}</a>
+                <button className="btn sm danger" disabled={busy} onClick={() => setWipe({ error: null })}>{t("settings.danger_button")}</button>
+              </div>
+            </div>
+            <div className="setting">
               <div className="txt"><b>{t("settings.usage")}</b><span>{t("settings.usage_desc")}</span></div>
               <span className="mono" style={{ fontSize: 12 }}>{usage ? t("settings.usage_value", { tokens: (usage.tokens_in + usage.tokens_out).toLocaleString(locale(lang)), count: usage.calls }) : "—"}</span>
             </div>
@@ -160,6 +183,7 @@ export function Settings() {
           </div>
         </div>
       </div>
+      {wipe && <DeleteDataModal busy={busy} error={wipe.error} onConfirm={doWipe} onClose={() => setWipe(null)} />}
       {modal && <ConnectorModal kind={modal.kind} initialTab={modal.tab} onClose={closeModal} />}
     </>
   );

@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import type { Automation, AutomationRun, AutomationView, Suggestion } from "../api/types";
 import { ChatPanel } from "../components/ChatPanel";
 import { FlowCanvas } from "../components/FlowCanvas";
+import { RunConfirmModal } from "../components/RunConfirmModal";
 import { DiagnoseButton, StudioAction } from "../components/StudioAction";
 import { TopActions } from "../components/TopBar";
 import { useI18n } from "../i18n";
@@ -21,6 +22,8 @@ export function AutomationEditor() {
   const [menu, setMenu] = useState(false);
   const [run, setRun] = useState<{ run: AutomationRun; studio_url?: string | null } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [confirmRun, setConfirmRun] = useState(false);
+  const [realRun, setRealRun] = useState(false); // the open drawer shows a real run, not a test
   const [selfHeal, setSelfHeal] = useState<{ traceId: string; prompt: string; nonce: number } | null>(null);
   const { t, lang } = useI18n();
   const notify = useNotify();
@@ -54,9 +57,15 @@ export function AutomationEditor() {
   };
   const test = async () => {
     setTesting(true);
-    try { setRun(await api.post(`/api/v1/automations/${id}/test`)); }
+    try { setRun(await api.post(`/api/v1/automations/${id}/test`)); setRealRun(false); }
     catch (e) { fail(e); }
     finally { setTesting(false); }
+  };
+  const runNow = async () => {
+    setTesting(true);
+    try { setRun(await api.post(`/api/v1/automations/${id}/run`)); setRealRun(true); qc.invalidateQueries({ queryKey: ["automation", id] }); }
+    catch (e) { fail(e); }
+    finally { setTesting(false); setConfirmRun(false); }
   };
   const undo = async () => {
     refresh(await api.post<Automation>(`/api/v1/automations/${id}/undo`));
@@ -72,7 +81,8 @@ export function AutomationEditor() {
         <span className="chip">{t("common.automation_chip")}</span>
         <span className={`status-dot ${a.status}`}>{t(`enums.automation_status.${a.status}`)}</span>
         {a.version > 1 && <button className="icon-btn" onClick={undo} title={t("editor.undo")}><RotateCcw size={15} /></button>}
-        <button className="btn sm" onClick={test} disabled={testing} style={{ height: 36 }}>{testing ? t("editor.testing") : t("editor.test")}</button>
+        <button className="btn sm" onClick={test} disabled={testing} title={t("editor.test_hint")} style={{ height: 36 }}>{testing ? t("editor.testing") : t("editor.test")}</button>
+        <button className="btn sm" onClick={() => setConfirmRun(true)} disabled={testing} style={{ height: 36 }}>{t("editor.run_now")}</button>
         <div style={{ position: "relative" }}>
           <button className="btn sm primary" style={{ height: 36 }} onClick={() => setMenu(!menu)}>{t("editor.activate")} <ChevronDown size={14} /></button>
           {menu && (
@@ -101,7 +111,7 @@ export function AutomationEditor() {
           {run && (
             <div className="card drawer">
               <h3>
-                {t(run.run.status === "success" ? "editor.test_ok" : "editor.test_failed")}
+                {t(run.run.status === "success" ? (realRun ? "editor.run_ok" : "editor.test_ok") : (realRun ? "editor.run_failed" : "editor.test_failed"))}
                 <button className="icon-btn" style={{ width: 26, height: 26 }} onClick={() => setRun(null)} aria-label={t("common.close")}><X size={13} /></button>
               </h3>
               {run.run.error && <div className="alert" style={{ marginBottom: 10 }}>{run.run.error}</div>}
@@ -129,6 +139,7 @@ export function AutomationEditor() {
             </div>
           )}
         </div>
+        {confirmRun && <RunConfirmModal automation={a} busy={testing} onConfirm={runNow} onClose={() => setConfirmRun(false)} />}
         <ChatPanel automation={a} selectedNodeId={selected} suggestion={usableSuggestion} onSuggestionDone={clearSuggestion} selfHeal={selfHeal} />
       </div>
     </>

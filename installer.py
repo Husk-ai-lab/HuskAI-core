@@ -109,8 +109,9 @@ def free_port() -> int:
 def smoke(folder: Path) -> None:
     exe = folder / (NAME + (".exe" if os.name == "nt" else ""))
     port = free_port()
-    env = dict(os.environ, HUSK_PORT=str(port), HUSK_DATA_DIR=str(BUILD / "smoke-data"), HUSK_ENV="prod")
-    proc = subprocess.Popen([str(exe)], env=env)
+    env = dict(os.environ, HUSK_PORT=str(port), HUSK_ENV="prod")
+    # --data-dir: the same flag a server needs (a headless CI machine counts as one)
+    proc = subprocess.Popen([str(exe), "--data-dir", str((BUILD / "smoke-data").resolve())], env=env)
     try:
         for _ in range(60):
             try:

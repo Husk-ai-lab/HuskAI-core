@@ -22,6 +22,9 @@ cd app/frontend && npm install && cd ../..
 cd app/frontend && npm run build && cd ../..
 uv run python -m app.main             # http://127.0.0.1:8765
 
+# on a server / in a container the data folder must be named (exit 2 otherwise)
+uv run python -m app.main --data-dir /var/lib/husk
+
 # UI development with hot reload
 uv run python -m app.main             # terminal 1 (HUSK_FRONTEND_DEV_URL=http://localhost:5173 in .env)
 cd app/frontend && npm run dev        # terminal 2 → http://localhost:5173 (proxies /api and /auth)

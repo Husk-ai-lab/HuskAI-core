@@ -83,6 +83,18 @@ async def test_run(automation_id: str, cu: CurrentUser = Depends(current_user), 
     return TestRunResponse(run=run, studio_url=studio)
 
 
+@router.post("/{automation_id}/run", response_model=TestRunResponse,
+             dependencies=[Depends(llm_ready), Depends(not_in_maintenance)])
+async def run_now(automation_id: str, cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)):
+    """A real run on demand: unlike the test run, notifications reach the node's own recipients."""
+    try:
+        run = await _svc(cu, services).run(automation_id, RunTrigger.manual)
+    except AutomationNotFound:
+        api_error(404, "errors.automation_not_found")
+    studio = services.studio.run_url(run.trace_id) if run.status.value == "failed" else None
+    return TestRunResponse(run=run, studio_url=studio)
+
+
 class NotificationEdit(BaseModel):
     """Only the fields that are sent change (`recipients: null` clears them)."""
 

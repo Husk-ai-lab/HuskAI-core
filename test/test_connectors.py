@@ -294,6 +294,27 @@ async def test_runs_send_log_no_content_and_prova_stays_with_the_user(services, 
     assert "4242" not in str(run.model_dump()) and TOKEN not in str(run.model_dump())
 
 
+async def test_run_now_endpoint_reaches_the_typed_address_while_test_stays_with_the_user(client, services) -> None:  # type: ignore[no-untyped-def]
+    """The reported bug: the only button was the test run, which writes to the user's own address by design.
+    `POST /run` is the real, on-demand run: the envelope recipient is exactly what is typed on the node."""
+    from app.gateways.sqlite.repositories import AutomationRepo
+    from test.test_builder_chat import _discovered
+
+    await services.connectors.configure(ORG, ConnectorKind.gmail, ConnectorIn(address=ADDRESS, app_password=APP_PASSWORD))
+    a = _discovered(client)
+    repo = AutomationRepo(services.db, ORG)
+    auto = repo.get(a["id"])
+    auto.graph = _graph("gmail", recipients="boss@cliente.it")
+    repo.save(auto)
+
+    test = client.post(f"/api/v1/automations/{a['id']}/test").json()
+    assert test["run"]["status"] == "success" and FakeSMTP.sent[-1]["To"] == ADDRESS  # test: only the connector's address
+    real = client.post(f"/api/v1/automations/{a['id']}/run").json()
+    assert real["run"]["status"] == "success" and real["run"]["trigger"] == "manual"
+    assert FakeSMTP.sent[-1]["To"] == "boss@cliente.it" and not FakeSMTP.sent[-1]["Subject"].startswith("[")
+    assert client.post("/api/v1/automations/missing/run").status_code == 404
+
+
 async def test_a_connector_that_is_not_set_up_skips_the_step_and_the_run_goes_on(services, tmp_path) -> None:  # type: ignore[no-untyped-def]
     login(services)
     ex = AutomationExecutor(services.agent_context(ORG, USER), tmp_path)

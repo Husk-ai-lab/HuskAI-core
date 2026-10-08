@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
-from collections.abc import AsyncIterator
+import os
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -43,6 +45,7 @@ from app.gateways.studio.client import StudioClient
 from app.gateways.studio.tracing import init_tracing
 from app.helpers.logging import configure_logging, get_logger
 from app.helpers.paths import resolve_data_paths
+from app.helpers.runtime import RuntimeInfo, detect_environment
 from app.helpers.settings import Settings, get_settings, resource_root
 
 log = get_logger("main")
@@ -117,7 +120,9 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
         scheduler = LocalScheduler(scheduled_run, lambda: svc.maintenance.blocking)
         scheduler.start(AutomationRepo(svc.db, "*").all_active())
         svc.scheduler = scheduler
-        log.info("Husk %s ready on http://%s:%s (data: %s)", __version__, settings.host, settings.port, svc.paths.root)
+        runtime = detect_environment()
+        log.info("Husk %s ready on http://%s:%s (data: %s; environment: %s%s)", __version__, settings.host, settings.port,
+                 svc.paths.root, runtime.kind, f" [{', '.join(runtime.reasons)}]" if runtime.reasons else "")
         try:
             yield
         finally:
@@ -189,9 +194,41 @@ def _mount_frontend(app: FastAPI) -> None:
         return FileResponse(dist / "index.html")
 
 
-def run() -> None:
+def _parse_args(argv: Sequence[str] | None) -> tuple[argparse.ArgumentParser, argparse.Namespace]:
+    parser = argparse.ArgumentParser(prog="husk", description="Husk: local backend and UI on 127.0.0.1.")
+    parser.add_argument("--data-dir", metavar="PATH", help="where Husk keeps its data (absolute path). Required on a server; "
+                        "on a desktop it overrides the OS application-data folder")
+    return parser, parser.parse_args(argv)
+
+
+def _data_dir_from_flag(parser: argparse.ArgumentParser, flag: str | None, info: RuntimeInfo) -> Path | None:
+    """On a server the flag is mandatory (HUSK_DATA_DIR in the environment is NOT enough): crash before anything is
+    created. Anywhere, a given path must be absolute and writable."""
+    if flag is None:
+        if info.is_server:
+            parser.error(f"Husk is running on a server ({', '.join(info.reasons)}) and will not use the OS data folder: "
+                         "pass the data folder explicitly, e.g. `python -m app.main --data-dir /var/lib/husk`")
+        return None
+    path = Path(flag).expanduser()
+    if not path.is_absolute():
+        parser.error(f"--data-dir must be an absolute path, got {flag!r}")
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        parser.error(f"--data-dir {str(path)!r} cannot be created: {exc.strerror}")
+    if not os.access(path, os.W_OK | os.X_OK):
+        parser.error(f"--data-dir {str(path)!r} is not writable")
+    return path
+
+
+def run(argv: Sequence[str] | None = None) -> None:
     import uvicorn
 
+    parser, args = _parse_args(argv)
+    data_dir = _data_dir_from_flag(parser, args.data_dir, detect_environment())
+    if data_dir is not None:  # the flag wins over HUSK_DATA_DIR; every reader of the settings sees it
+        os.environ["HUSK_DATA_DIR"] = str(data_dir)
+        get_settings.cache_clear()
     settings = get_settings()
     # no access log: the request line of /callback carries the one-time OAuth code and state
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level="info", access_log=False)

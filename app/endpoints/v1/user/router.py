@@ -22,6 +22,7 @@ from app.gateways.clerk.oidc import ClerkError
 from app.gateways.gateway.errors import GatewayError
 from app.gateways.sqlite.backup import BackupError, export_backup, import_backup
 from app.gateways.sqlite.repositories import SessionRepo, UsageRepo, UserRepo
+from app.gateways.sqlite.wipe import WipeError, wipe_data
 from app.helpers.ids import new_secret
 from app.helpers.logging import get_logger
 from app.helpers.time import utcnow
@@ -239,3 +240,43 @@ async def import_all(
         for a in AutomationRepo(services.db, cu.org_id).list():
             services.scheduler.sync(a)
     return ImportResponse(documents=res.documents, files=res.files, safety_copy=res.safety_copy)
+
+
+# --- delete everything --------------------------------------------------------------------------
+class WipeRequest(BaseModel):
+    confirm: bool = False
+
+
+class WipeResponse(BaseModel):
+    documents: int
+    automations: int
+    bytes_freed: int
+
+
+@router.delete("/data", response_model=WipeResponse)
+async def delete_all_data(
+    body: WipeRequest, cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services),
+) -> WipeResponse:
+    """Empties the data folder (database, documents, indexes, runs, outputs, old backups). The signed-in user stays
+    signed in with their settings; keychain items (login, Telegram/Gmail secrets) are not in the folder and stay."""
+    if not body.confirm:
+        api_error(400, "errors.wipe_confirm_required")
+    if any(not t.done() for k, t in services.tasks.items() if k.startswith("discovery:")):
+        api_error(409, "errors.wipe_discovery_running")
+    services.suggestions.cancel_all()
+    if services.scheduler is not None:
+        from app.gateways.sqlite.repositories import AutomationRepo
+
+        for a in AutomationRepo(services.db, "*").all_active():
+            services.scheduler.remove(a.id)
+    try:
+        res = await asyncio.to_thread(wipe_data, services.db, services.paths)
+    except WipeError as exc:
+        from_localized(exc)
+    services.index.drop()
+    services.events.reset()
+    # Keep the current user signed in, with their settings (language, personality): sessions are in the database.
+    UserRepo(services.db).upsert(cu.user)
+    UserRepo(services.db).save_settings(cu.id, cu.settings)
+    SessionRepo(services.db).create(cu.session_id, cu.user, utcnow() + timedelta(days=SESSION_DAYS))
+    return WipeResponse(documents=res.documents, automations=res.automations, bytes_freed=res.bytes_freed)

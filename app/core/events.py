@@ -31,6 +31,10 @@ class EventHub:
         The sequence keeps counting, so ids stay increasing across attempts."""
         self._backlog[channel].clear()
 
+    def reset(self) -> None:
+        """All local data was deleted: no channel has history worth replaying."""
+        self._backlog.clear()
+
     def subscribe(self, channel: str, replay: bool = True, after: int = 0) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
         if replay:

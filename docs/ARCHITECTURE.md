@@ -64,6 +64,10 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 
 Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<org>/` (index, rebuildable), `outputs/<org>/` (automation outputs), `exports/` (backups), `logs/`.
 
+**Delete all data** (Settings → Delete all data, `DELETE /api/v1/user/data`, `gateways/sqlite/wipe.py`): removes only those Husk-made files and folders (never the data root itself, which may be a shared folder), empties the logs, recreates an empty migrated database and keeps the user signed in with their settings. Keychain items (login, connector secrets) are not in the folder and stay.
+
+**Server mode.** `helpers/runtime.py` tells a desktop from a server (`HUSK_SERVER=1`, containers, hosting-platform variables, headless Linux). On a server `python -m app.main` **requires `--data-dir PATH`** (absolute and writable) and exits with code 2 without it; `HUSK_DATA_DIR` alone is not accepted there, and `resolve_data_paths` never falls back to the OS folder. This protects the data folder only: a real server deployment still needs a non-loopback login redirect (it is `http://127.0.0.1:{port}/callback`), a secret store without a keychain (secrets are otherwise kept in memory), a configurable host and origins for `LocalGuard`.
+
 **Neon (`husk-core`) is read anonymously and read-only** through the Neon Data API: two public views, the maintenance switch and release notices. No credential: each call carries a short-lived anonymous token from Neon Auth, held in memory only; nothing is written. See [DATA_MODEL.md](DATA_MODEL.md).
 
 ## Multi-tenancy (B2B)
