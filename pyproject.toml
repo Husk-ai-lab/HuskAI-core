@@ -61,3 +61,7 @@ ignore = ["E501", "B008"]
 
 [tool.uv]
 package = false
+# cryptography 49+ publishes no macOS x86_64 wheel, so an Intel Mac would compile it against a different
+# OpenSSL than the one PyInstaller bundles (the binary then dies at start-up). 48.x is the last release
+# with a self-contained universal2 wheel. Other platforms keep the newest version.
+constraint-dependencies = ["cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'"]
