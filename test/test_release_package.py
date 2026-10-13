@@ -88,6 +88,26 @@ def test_a_folder_without_libpython_is_refused(tmp_path: Path) -> None:
     assert any("libpython" in p for p in problems)
 
 
+def test_a_macos_framework_python_is_accepted(tmp_path: Path) -> None:
+    """Hosted macOS runners use python.org framework builds: PyInstaller names the runtime `Python`."""
+    folder = build_folder(tmp_path)
+    (folder / "_internal" / "libpython3.11.dylib").rename(folder / "_internal" / "Python")
+    assert release.check_folder(folder, MAC_ARM)[0] == []
+    archive = tmp_path / "a.tar.gz"
+    release.make_archive(folder, archive)
+    assert release.inspect_archive(archive, MAC_ARM)[0] == []
+    # ... and its architecture is checked like any other native file
+    (folder / "_internal" / "Python").write_bytes(macho(X64))
+    assert any("not arm64" in p for p in release.check_folder(folder, MAC_ARM)[0])
+
+
+def test_a_directory_named_python_is_not_the_runtime(tmp_path: Path) -> None:
+    folder = build_folder(tmp_path)
+    (folder / "_internal" / "libpython3.11.dylib").unlink()
+    (folder / "_internal" / "Python").mkdir()
+    assert any("libpython" in p for p in release.check_folder(folder, MAC_ARM)[0])
+
+
 def test_a_wrong_architecture_is_refused_but_launcher_exes_are_not(tmp_path: Path) -> None:
     folder = build_folder(tmp_path, MAC_X64, X64)
     (folder / "_internal" / "libwrong.dylib").write_bytes(macho(ARM))

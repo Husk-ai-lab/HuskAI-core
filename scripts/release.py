@@ -45,7 +45,11 @@ TRIPLES = ("aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msv
 # Loadable native code is checked for the right CPU; bundled launcher .exe files (setuptools ships
 # 32-bit and arm64 ones) are data, not code this build runs.
 NATIVE_SUFFIXES = {".dylib", ".pyd", ".dll"}
-LIBPYTHON = ("libpython3*", "python3*.dll")
+# The Python runtime PyInstaller puts in _internal/: libpython3.x.dylib/.so (python-build-standalone, uv,
+# Linux), python3xx.dll (Windows) or plain `Python` (a macOS framework build such as the hosted runners'
+# and python.org installers).
+LIBPYTHON = ("libpython3*", "python3*.dll", "Python")
+LIBPYTHON_ARCHIVE = re.compile(rf"{NAME}/_internal/(libpython3.*|python3\d*\.dll|Python)")
 JUNK_NAMES = {".env", ".DS_Store", ".bare-executable"}
 CPU = {"macho": {0x0100000C: "arm64", 0x01000007: "x86_64"},
        "pe": {0x8664: "x86_64", 0xAA64: "arm64", 0x014C: "x86"},
@@ -145,7 +149,7 @@ def check_folder(folder: Path, triple: str) -> tuple[list[str], int]:
         problems.append(f"{exe.name} is missing from {folder}")
     if not internal.is_dir():
         problems.append("_internal/ is missing: the executable cannot start without it")
-    elif not any(any(internal.glob(p)) for p in LIBPYTHON):
+    elif not any(f.is_file() for pat in LIBPYTHON for f in internal.glob(pat)):
         problems.append("_internal/ holds no libpython (the Python runtime)")
     want, wrong, checked = expected_arch(triple), [], 0
     for p in sorted(folder.rglob("*")) if folder.is_dir() else []:
@@ -153,7 +157,7 @@ def check_folder(folder: Path, triple: str) -> tuple[list[str], int]:
             problems.append(f"unwanted file in the bundle: {p.relative_to(folder)}")
         if p.is_symlink() or not p.is_file():
             continue
-        if p == exe or p.suffix in NATIVE_SUFFIXES or ".so" in p.name:
+        if p == exe or p.suffix in NATIVE_SUFFIXES or ".so" in p.name or p.name == "Python":
             archs = binary_archs(p)
             if archs is not None:
                 checked += 1
@@ -200,7 +204,7 @@ def inspect_archive(archive: Path, triple: str) -> tuple[list[str], int, int]:
     for need in (f"{NAME}/{exe_name(triple)}", f"{NAME}/_internal"):
         if not any(n.rstrip("/") == need or n.startswith(need + "/") for n in names):
             problems.append(f"the archive has no {need}")
-    if not any(re.fullmatch(r"libpython3.*|python3\d*\.dll", Path(n).name) for n in names):
+    if not any(LIBPYTHON_ARCHIVE.fullmatch(n) for n in names):
         problems.append("the archive has no libpython")
     if any(Path(n).name.startswith("._") or Path(n).name in JUNK_NAMES for n in names):
         problems.append("the archive has AppleDouble or junk files")
