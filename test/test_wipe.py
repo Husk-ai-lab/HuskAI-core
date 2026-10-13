@@ -95,3 +95,15 @@ def test_unsafe_roots_are_refused(services, tmp_path: Path, unsafe: str) -> None
     with pytest.raises(WipeError):
         wipe_data(services.db, DataPaths(root=root))
     assert sqlite3.connect(services.paths.db).execute("SELECT COUNT(*) FROM orgs").fetchone() is not None  # untouched
+
+
+def test_wipe_removes_the_connector_secrets_file(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
+    """With the file store the credentials are in the data folder: deleting all data deletes them too."""
+    from app.gateways.connectors.secrets import ConnectorSecrets
+
+    store = ConnectorSecrets(file=services.paths.connector_secrets)
+    store.set(ORG, "gmail", {"address": "a@example.com", "password": "abcdefghijklmnop", "hint": "a@example.com"})
+    assert services.paths.connector_secrets.exists()
+    assert client.request("DELETE", "/api/v1/user/data", json={"confirm": True}).status_code == 200
+    assert not services.paths.connector_secrets.exists()
+    assert store.get(ORG, "gmail") is None

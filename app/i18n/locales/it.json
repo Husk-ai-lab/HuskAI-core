@@ -147,7 +147,7 @@
   "connectors.save": "Verifica e salva",
   "connectors.saved": "Salvato: il connettore è pronto.",
   "connectors.saving": "Verifico…",
-  "connectors.secret_note": "Conservato solo nel portachiavi sicuro di questo computer, mai nei file o nei backup di Husk.",
+  "connectors.secret_note": "Conservato solo su questo computer, in un file privato nella cartella dati di Husk. Mai nel database, nei backup o inviato altrove.",
   "connectors.section_desc": "Come le tue automazioni inviano messaggi, email e report. I messaggi partono da questo computer direttamente verso Telegram o Google, non passano dai server di Husk.",
   "connectors.section_title": "Connettori",
   "connectors.sending": "Invio…",

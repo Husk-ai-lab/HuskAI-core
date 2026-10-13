@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     port: int = Field(8765, validation_alias=AliasChoices("HUSK_PORT"))
     data_dir: Path | None = Field(None, validation_alias=AliasChoices("HUSK_DATA_DIR"))
     launch_secret: str | None = Field(None, validation_alias=AliasChoices("HUSK_LAUNCH_SECRET"))
+    # Where connector credentials live: a private file in the data folder (no keychain prompts) or the OS keychain.
+    secret_store: Literal["file", "keychain"] = Field("file", validation_alias=AliasChoices("HUSK_SECRET_STORE"))
     # Where the browser UI lives in development (Vite dev server); in production the
     # UI is served by FastAPI itself from app/frontend/dist.
     frontend_dev_url: str | None = Field(None, validation_alias=AliasChoices("HUSK_FRONTEND_DEV_URL"))

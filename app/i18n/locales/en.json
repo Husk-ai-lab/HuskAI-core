@@ -147,7 +147,7 @@
   "connectors.save": "Verify and save",
   "connectors.saved": "Saved: the connector is ready.",
   "connectors.saving": "Verifying…",
-  "connectors.secret_note": "Stored only in this computer's secure keychain, never in Husk's files or backups.",
+  "connectors.secret_note": "Stored only on this computer, in a private file in Husk's data folder. Never in the database, in backups or sent anywhere.",
   "connectors.section_desc": "How your automations send messages, emails and reports. Messages go from this computer straight to Telegram or Google, not through Husk's servers.",
   "connectors.section_title": "Connectors",
   "connectors.sending": "Sending…",

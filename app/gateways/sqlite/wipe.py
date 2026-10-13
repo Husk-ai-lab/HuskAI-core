@@ -1,9 +1,9 @@
 """Delete ALL local data (the data folder) and start again from an empty database.
 
 Only the folders and files Husk itself creates are removed (`husk.db` and its WAL files, `documents/`, `bm25/`,
-`runs/`, `outputs/`, `exports/` with the old backups). The data root is NEVER removed as a whole: `HUSK_DATA_DIR` /
+`runs/`, `outputs/`, `exports/` with the old backups, and `connector-secrets.json` when the file store is used). The data root is NEVER removed as a whole: `HUSK_DATA_DIR` /
 `--data-dir` may point at a folder that holds other things. Log files are emptied, not unlinked (the logger keeps
-the active file open). Keychain items (login, connector secrets) are not touched: they are not in the folder.
+the active file open). Keychain items (login, and connector secrets when `HUSK_SECRET_STORE=keychain`) are not touched: they are not in the folder.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from app.helpers.paths import DataPaths
 from app.i18n.errors import LocalizedError
 
 log = get_logger("wipe")
-_DB_FILES = ("husk.db", "husk.db-wal", "husk.db-shm")
+_DB_FILES = ("husk.db", "husk.db-wal", "husk.db-shm", "connector-secrets.json", "connector-secrets.json.tmp")
 _FOLDERS = ("documents", "bm25", "runs", "outputs", "exports")
 
 

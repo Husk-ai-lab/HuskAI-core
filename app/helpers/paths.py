@@ -37,6 +37,11 @@ class DataPaths:
         return self.root / "husk.db"
 
     @property
+    def connector_secrets(self) -> Path:
+        """Connector credentials (file store): owner-only, never exported in a backup, removed by Delete all data."""
+        return self.root / "connector-secrets.json"
+
+    @property
     def bm25(self) -> Path:
         return self.root / "bm25"
 

@@ -70,7 +70,7 @@ def build_services(settings: Settings) -> Services:
         llm=GatewayProvider(settings, UsageRepo(db), gateway),
         decisions=GatewayDecisionModel(settings, gateway, UsageRepo(db)),
         gateway=gateway,
-        connectors=ConnectorService(db, ConnectorSecrets(use_keyring=settings.env != "test")),
+        connectors=ConnectorService(db, ConnectorSecrets.from_settings(settings, paths)),
         neon=neon,
         studio=StudioClient(settings),
         clerk=clerk,

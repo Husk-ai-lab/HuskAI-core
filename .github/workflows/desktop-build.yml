@@ -1,0 +1,190 @@
+# Builds the Husk backend binary for the desktop shell.
+#   push to main  -> test, build, smoke-test, upload workflow artefacts + release report (no release)
+#   tag v*        -> the same, then a DRAFT GitHub release (a person publishes it)
+# All the packaging logic lives in scripts/release.py so the same steps run on one machine without CI
+# (`uv run python scripts/release.py build`). See docs/RELEASING.md.
+#
+# Not wired yet: code signing / notarisation (no certificates exist). Every build is unsigned and the
+# report says so. No pull_request trigger on purpose: the repository is public.
+name: desktop-build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "installer.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "scripts/**"
+      - ".github/workflows/desktop-build.yml"
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  # Targets that must build for the run (and a release) to count as good. Add the other two
+  # once they have gone green: x86_64-apple-darwin, x86_64-pc-windows-msvc.
+  REQUIRED_TRIPLES: aarch64-apple-darwin
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+      - id: ver
+        name: Version label (the tag, or <app version>-dev.<sha>)
+        run: python3 scripts/release.py version --ref-type "$GITHUB_REF_TYPE" --ref-name "$GITHUB_REF_NAME" --sha "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - run: uv sync --frozen
+      - run: uv run ruff check app test benchmarks installer.py scripts
+      - run: mkdir -p report && uv run pytest --junitxml=report/pytest.xml
+      - run: npm ci
+        working-directory: app/frontend
+      - name: Frontend tests
+        run: npx vitest run --reporter=json --outputFile="$GITHUB_WORKSPACE/report/vitest.json"
+        working-directory: app/frontend
+      - name: Build the UI (tsc + vite)
+        run: npm run build
+        working-directory: app/frontend
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui
+          path: app/frontend/dist
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: quality
+          path: report
+          if-no-files-found: ignore
+
+  build:
+    needs: verify
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Phase 1
+          - { target: mac-arm64, runner: macos-14, triple: aarch64-apple-darwin, experimental: false }
+          # Phase 2: never built in CI yet, so a failure must not block the arm64 build.
+          # The Intel label is the last Intel image GitHub offers; confirm it still exists.
+          - { target: mac-x64, runner: macos-15-intel, triple: x86_64-apple-darwin, experimental: true }
+          - { target: win-x64, runner: windows-latest, triple: x86_64-pc-windows-msvc, experimental: true }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ui
+          path: app/frontend/dist
+      - run: uv sync --frozen
+      - name: Build the one-folder binary (UI already built)
+        run: uv run python installer.py --skip-ui
+      - name: Package, check the archive and run it like the shell does
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: uv run python scripts/release.py package --version "$VERSION" --triple "${{ matrix.triple }}" --smoke --out dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: build-${{ matrix.target }}
+          path: |
+            dist/husk-backend-*
+            dist/report/*.json
+          if-no-files-found: error
+
+  report:
+    needs: [verify, build]
+    if: always() && needs.verify.result != 'skipped'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          path: release
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: quality
+          path: quality
+        continue-on-error: true
+      - name: Release report
+        env:
+          TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          VERIFY: ${{ needs.verify.result }}
+        run: |
+          python3 scripts/release.py report \
+            --reports release/report --out release \
+            --require "$REQUIRED_TRIPLES" \
+            --pytest-xml quality/pytest.xml --vitest-json quality/vitest.json \
+            --check "verify=$VERIFY" ${TAG:+--tag "$TAG"}
+      - name: Job summary
+        if: always()
+        run: cat release/RELEASE_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: release-meta
+          path: |
+            release/release-report.json
+            release/RELEASE_REPORT.md
+            release/SHA256SUMS
+          if-no-files-found: ignore
+
+  release:
+    # A draft, on purpose: a person looks at the report and publishes. The shell ignores drafts.
+    needs: report
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          path: assets
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-meta
+          path: assets
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(assets/husk-backend-*.tar.gz assets/husk-backend-*.zip)
+          [ "${#archives[@]}" -gt 0 ] || { echo "no archives to publish" >&2; exit 1; }
+          prerelease=()
+          case "$GITHUB_REF_NAME" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" "${archives[@]}" assets/SHA256SUMS assets/release-report.json \
+            --repo "$GITHUB_REPOSITORY" --draft "${prerelease[@]}" --verify-tag \
+            --title "Husk ${GITHUB_REF_NAME#v}" --notes-file assets/RELEASE_REPORT.md

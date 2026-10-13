@@ -50,7 +50,8 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 | Public identifiers (Clerk issuer/client id, gateway URL, default models, Neon Data API URL, languages) | `app/config.py` | Yes |
 | Overrides for dev/staging; provider keys for benchmarks only | `.env` (root) | No |
 | Values passed by the future shell (`HUSK_PORT`, `HUSK_DATA_DIR`, `HUSK_LAUNCH_SECRET`, `HUSK_STUDIO_*`) | Environment | — |
-| Clerk refresh token, connector credentials (Telegram bot token + chat, Gmail App Password) | OS keychain (`keyring`), never SQLite | No (and never exported) |
+| Clerk refresh token | OS keychain (`keyring`), never SQLite | No (and never exported) |
+| Connector credentials (Telegram bot token + chat, Gmail App Password) | `connector-secrets.json` in the data folder, 0600, plain text (default, `HUSK_SECRET_STORE=file`) or the OS keychain (`HUSK_SECRET_STORE=keychain`); never SQLite | No (never in a backup export) |
 
 ## Where data lives
 
@@ -64,7 +65,7 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 
 Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<org>/` (index, rebuildable), `outputs/<org>/` (automation outputs), `exports/` (backups), `logs/`.
 
-**Delete all data** (Settings → Delete all data, `DELETE /api/v1/user/data`, `gateways/sqlite/wipe.py`): removes only those Husk-made files and folders (never the data root itself, which may be a shared folder), empties the logs, recreates an empty migrated database and keeps the user signed in with their settings. Keychain items (login, connector secrets) are not in the folder and stay.
+**Delete all data** (Settings → Delete all data, `DELETE /api/v1/user/data`, `gateways/sqlite/wipe.py`): removes only those Husk-made files and folders (never the data root itself, which may be a shared folder), empties the logs, recreates an empty migrated database and keeps the user signed in with their settings. `connector-secrets.json` (file store) is removed with them. Keychain items (the login, and connector secrets when `HUSK_SECRET_STORE=keychain`) are not in the folder and stay.
 
 **Server mode.** `helpers/runtime.py` tells a desktop from a server (`HUSK_SERVER=1`, containers, hosting-platform variables, headless Linux). On a server `python -m app.main` **requires `--data-dir PATH`** (absolute and writable) and exits with code 2 without it; `HUSK_DATA_DIR` alone is not accepted there, and `resolve_data_paths` never falls back to the OS folder. This protects the data folder only: a real server deployment still needs a non-loopback login redirect (it is `http://127.0.0.1:{port}/callback`), a secret store without a keychain (secrets are otherwise kept in memory), a configurable host and origins for `LocalGuard`.
 
