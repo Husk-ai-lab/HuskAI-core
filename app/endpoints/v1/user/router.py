@@ -207,7 +207,9 @@ async def export_all(cu: CurrentUser = Depends(current_user), services: Services
 
 class ExportSaved(BaseModel):
     name: str
-    path: str  # where it was written, inside the data folder
+    path: str  # the full path of the file that was written
+    folder: str
+    in_data_folder: bool  # True = the fallback: Delete all data would remove it
     size_bytes: int
 
 
@@ -220,7 +222,8 @@ async def export_to_folder(cu: CurrentUser = Depends(current_user), services: Se
     except Exception as exc:
         log.warning("export failed: %s", type(exc).__name__)
         api_error(500, "errors.export_failed")
-    return ExportSaved(name=path.name, path=str(path), size_bytes=path.stat().st_size)
+    return ExportSaved(name=path.name, path=str(path), folder=str(path.parent),
+                       in_data_folder=path.parent == services.paths.exports, size_bytes=path.stat().st_size)
 
 
 class RevealRequest(BaseModel):
@@ -233,8 +236,8 @@ async def reveal_export(body: RevealRequest, cu: CurrentUser = Depends(current_u
     """Shows one backup file in the file manager. Only a file name this app created, inside `exports/`."""
     if not BACKUP_NAME.match(body.name):
         api_error(400, "errors.export_reveal_invalid")
-    target = services.paths.root / "exports" / body.name
-    if not target.is_file():
+    target = next((f for f in (services.paths.backups / body.name, services.paths.exports / body.name) if f.is_file()), None)
+    if target is None:
         api_error(404, "errors.export_reveal_missing")
     try:
         await asyncio.to_thread(filemanager.reveal, target)
@@ -291,6 +294,7 @@ class WipeResponse(BaseModel):
     documents: int
     automations: int
     bytes_freed: int
+    backups_folder: str | None = None  # exported backups are kept (they are outside the data folder)
 
 
 @router.delete("/data", response_model=WipeResponse)
@@ -319,4 +323,7 @@ async def delete_all_data(
     UserRepo(services.db).upsert(cu.user)
     UserRepo(services.db).save_settings(cu.id, cu.settings)
     SessionRepo(services.db).create(cu.session_id, cu.user, utcnow() + timedelta(days=SESSION_DAYS))
-    return WipeResponse(documents=res.documents, automations=res.automations, bytes_freed=res.bytes_freed)
+    kept = services.paths.backups
+    has_backups = kept != services.paths.exports and kept.is_dir() and any(kept.glob("husk-export-*.db"))
+    return WipeResponse(documents=res.documents, automations=res.automations, bytes_freed=res.bytes_freed,
+                        backups_folder=str(kept) if has_backups else None)

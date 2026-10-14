@@ -13,6 +13,7 @@ re-run migrations. The caller then rebuilds the search indexes.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import sqlite3
@@ -69,13 +70,33 @@ def prune_exports(out_dir: Path, prefix: str, keep: int) -> None:
             pass
 
 
+def _writable_folder(paths: DataPaths) -> Path:
+    """The backup folder if it can be written, else the data folder's `exports/` (a refused Documents permission,
+    a read-only disk). The caller reports which one was used."""
+    for folder in (paths.backups, paths.exports):
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            probe = folder / f".husk-write-test-{os.getpid()}"
+            probe.write_bytes(b"")
+            probe.unlink()
+            return folder
+        except OSError:
+            continue
+    raise BackupError("errors.export_failed", status=500)
+
+
 def export_backup(db: Database, paths: DataPaths, app_version: str) -> Path:
-    out_dir = paths.root / "exports"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    """Writes one backup and returns its path. A failed export leaves no file behind."""
     with _export_lock:
-        out = _unique(out_dir, "husk-export")
-        _write_export(db, paths, app_version, out)
-        prune_exports(out_dir, "husk-export", KEEP_EXPORTS)
+        folder = _writable_folder(paths)
+        out = _unique(folder, "husk-export")
+        try:
+            _write_export(db, paths, app_version, out)
+        except BaseException:
+            out.unlink(missing_ok=True)
+            raise
+        if folder == paths.exports:  # never delete anything in a folder the person chose or owns
+            prune_exports(folder, "husk-export", KEEP_EXPORTS)
     return out
 
 
@@ -169,7 +190,7 @@ def import_backup(db: Database, paths: DataPaths, backup_file: Path, require_org
             conn.close()
 
         # Safety copy of what we are about to replace.
-        out_dir = paths.root / "exports"
+        out_dir = paths.exports
         out_dir.mkdir(parents=True, exist_ok=True)
         with _export_lock:
             safety = _unique(out_dir, "pre-import")

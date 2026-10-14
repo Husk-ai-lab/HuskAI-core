@@ -222,8 +222,8 @@ mark { background: var(--accent); color: #fff; border-radius: 3px; padding: 0 2p
 .studio-link:hover { background: var(--accent-soft); }
 /* ---------- snackbars (lib/notifications.tsx) ---------- */
 .snackbars { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; width: max-content; max-width: calc(100vw - 32px); }
-.snackbar { pointer-events: auto; display: flex; align-items: center; gap: 10px; background: var(--primary); color: var(--primary-ink); padding: 8px 8px 8px 16px; border-radius: 999px; font-size: 13.5px; box-shadow: var(--shadow-pop); animation: snack-in 0.22s ease-out; }
-.snackbar .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.snackbar { pointer-events: auto; display: flex; align-items: center; gap: 10px; background: var(--primary); color: var(--primary-ink); padding: 8px 8px 8px 16px; border-radius: 22px; font-size: 13.5px; box-shadow: var(--shadow-pop); animation: snack-in 0.22s ease-out; }
+.snackbar .text { white-space: normal; overflow-wrap: anywhere; max-width: min(620px, calc(100vw - 120px)); }
 .snack-action { border: 0; background: none; color: inherit; font-weight: 700; cursor: pointer; padding: 4px 8px; border-radius: 999px; text-decoration: underline; text-underline-offset: 3px; }
 .snack-close { border: 0; background: none; color: inherit; opacity: 0.7; cursor: pointer; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; }
 .snack-close:hover, .snack-action:hover { opacity: 1; background: rgba(255, 255, 255, 0.12); }

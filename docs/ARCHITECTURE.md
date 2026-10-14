@@ -63,7 +63,7 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 | Windows | `%APPDATA%\ai.husk.desktop\data\husk` |
 | Linux | `~/.local/share/ai.husk.desktop/data/husk` |
 
-Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<org>/` (index, rebuildable), `outputs/<org>/` (automation outputs), `exports/` (backups), `logs/`.
+Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<org>/` (index, rebuildable), `outputs/<org>/` (automation outputs), `exports/` (safety copies before an import, and the fallback for backups), `logs/`. Exported backups live in `<Documents>/Husk backups/` (`HUSK_BACKUP_DIR`), outside this folder.
 
 **Delete all data** (Settings → Delete all data, `DELETE /api/v1/user/data`, `gateways/sqlite/wipe.py`): removes only those Husk-made files and folders (never the data root itself, which may be a shared folder), empties the logs, recreates an empty migrated database and keeps the user signed in with their settings. `connector-secrets.json` (file store) is removed with them. Keychain items (the login, and connector secrets when `HUSK_SECRET_STORE=keychain`) are not in the folder and stay.
 

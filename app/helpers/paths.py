@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from platformdirs import user_data_dir
+from platformdirs import user_data_dir, user_documents_dir
 
 from app.helpers.runtime import detect_environment
 from app.helpers.settings import Settings
@@ -31,10 +31,22 @@ class DataDirRequired(RuntimeError):
 @dataclass(frozen=True)
 class DataPaths:
     root: Path
+    backups_root: Path | None = None  # where exported backups go; None = inside the data folder (`exports/`)
 
     @property
     def db(self) -> Path:
         return self.root / "husk.db"
+
+    @property
+    def exports(self) -> Path:
+        """Inside the data folder: safety copies made before an import, and the fallback for backups. Removed by
+        Delete all data."""
+        return self.root / "exports"
+
+    @property
+    def backups(self) -> Path:
+        """Where "Export a backup" writes. Outside the data folder by default, so Delete all data keeps it."""
+        return self.backups_root or self.exports
 
     @property
     def connector_secrets(self) -> Path:
@@ -94,4 +106,17 @@ def resolve_data_paths(settings: Settings) -> DataPaths:
         if info.is_server and settings.env != "test":  # defence in depth: `main.run()` already refuses to start
             raise DataDirRequired(f"server detected ({', '.join(info.reasons)}): pass --data-dir PATH")
         root = Path(user_data_dir(APP_ID, appauthor=False, roaming=True)) / "data" / "husk"
-    return DataPaths(root=root).ensure()
+    return DataPaths(root=root, backups_root=_backups_root(settings, root)).ensure()
+
+
+def _backups_root(settings: Settings, root: Path) -> Path:
+    """`HUSK_BACKUP_DIR`, else `<Documents>/Husk backups` on a desktop. Tests and servers keep backups beside the
+    data (never in a person's Documents). The folder is created when the first backup is written, not here."""
+    if settings.backup_dir:
+        return Path(settings.backup_dir).expanduser()
+    if settings.env == "test" or detect_environment().is_server:
+        return root / "backups"
+    try:
+        return Path(user_documents_dir()) / "Husk backups"
+    except Exception:  # no Documents folder known: stay inside the data folder
+        return root / "backups"

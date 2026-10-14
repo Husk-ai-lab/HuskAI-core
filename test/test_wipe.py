@@ -18,7 +18,7 @@ from test.test_discovery_e2e import wait_run
 def _populate(client: TestClient) -> None:
     upload_samples(client)
     wait_run(client, client.post("/api/v1/discovery/runs").json()["run"]["id"])
-    client.get("/api/v1/user/data/export")  # leaves a backup under exports/
+    client.get("/api/v1/user/data/export")  # leaves a backup in the backup folder (kept by a wipe)
 
 
 def test_wipe_empties_the_folder_and_keeps_the_user_signed_in(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
@@ -26,7 +26,11 @@ def test_wipe_empties_the_folder_and_keeps_the_user_signed_in(client: TestClient
     _populate(client)
     client.patch("/api/v1/user/settings", json={"language": "it"})
     assert client.get("/api/v1/documents").json() and AutomationRepo(services.db, ORG).list()
+    (root / "exports").mkdir(exist_ok=True)
+    (root / "exports" / "pre-import-2026-01-01-000000.db").write_bytes(b"x")  # a safety copy: part of the data
     assert any((root / "documents").rglob("*.*")) and any((root / "exports").iterdir())
+    kept = sorted(p.name for p in services.paths.backups.glob("husk-export-*.db"))
+    assert kept
 
     r = client.request("DELETE", "/api/v1/user/data", json={"confirm": True})
     assert r.status_code == 200, r.text
@@ -36,6 +40,7 @@ def test_wipe_empties_the_folder_and_keeps_the_user_signed_in(client: TestClient
     assert client.get("/api/v1/documents").json() == []
     assert client.get("/api/v1/automations").json() == []
     assert not any((root / "documents").rglob("*.*")) and not (root / "exports").exists()
+    assert sorted(p.name for p in services.paths.backups.glob("husk-export-*.db")) == kept  # exported backups stay
     me = client.get("/api/v1/user/me")
     assert me.status_code == 200 and me.json()["settings"]["language"] == "it"  # still signed in, settings kept
     assert client.get("/api/v1/documents/search", params={"q": "fornitore"}).json() == []

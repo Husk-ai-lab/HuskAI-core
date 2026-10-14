@@ -180,7 +180,7 @@ def _mount_frontend(app: FastAPI) -> None:
             return JSONResponse({"detail": "UI not built: run `npm run build` in app/frontend"})
         return
     if (dist / "assets").exists():
-        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+        app.mount("/assets", ImmutableAssets(directory=dist / "assets"), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str, request: Request) -> FileResponse:
@@ -190,8 +190,21 @@ def _mount_frontend(app: FastAPI) -> None:
             raise HTTPException(404)
         candidate = (dist / full_path).resolve()
         if full_path and candidate.is_file() and dist.resolve() in candidate.parents:
-            return FileResponse(candidate)
-        return FileResponse(dist / "index.html")
+            return FileResponse(candidate, headers=_REVALIDATE)
+        return FileResponse(dist / "index.html", headers=_REVALIDATE)
+
+
+# The page shell must be revalidated on every load: without a Cache-Control header a webview keeps `index.html`
+# by heuristic freshness (hours) and keeps booting the previous UI after an update. Hashed assets never change.
+_REVALIDATE = {"Cache-Control": "no-cache"}
+
+
+class ImmutableAssets(StaticFiles):
+    async def get_response(self, path, scope):  # type: ignore[no-untyped-def]
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 def _parse_args(argv: Sequence[str] | None) -> tuple[argparse.ArgumentParser, argparse.Namespace]:

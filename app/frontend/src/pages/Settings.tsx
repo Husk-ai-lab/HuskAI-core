@@ -13,6 +13,7 @@ import { LanguageSwitch } from "../components/LanguageSwitch";
 import { locale, useI18n } from "../i18n";
 import { CONNECTOR_KINDS, useConnectors, type ConnectorKind } from "../lib/connectors";
 import { useMe, useSystem } from "../lib/hooks";
+import { useNotify } from "../lib/notifications";
 import { useTheme } from "../lib/theme";
 
 export function Settings() {
@@ -26,7 +27,8 @@ export function Settings() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState<{ name: string; path: string } | null>(null);
+  const notify = useNotify();
+  const [saved, setSaved] = useState<{ name: string; path: string; inData: boolean } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<File | null>(null);
   const { data: connectors } = useConnectors();
@@ -55,22 +57,29 @@ export function Settings() {
     setMsg(null);
     setSaved(null);
     try {
-      const r = await api.post<{ name: string; path: string }>("/api/v1/user/data/export");
-      setSaved({ name: r.name, path: r.path });
+      const r = await api.post<{ name: string; path: string; in_data_folder: boolean }>("/api/v1/user/data/export");
+      setSaved({ name: r.name, path: r.path, inData: r.in_data_folder });
+      // the pop-up says exactly where the file is (the same text stays in the page below)
+      notify(t(r.in_data_folder ? "settings.export_toast_data_folder" : "settings.export_toast", { path: r.path }), {
+        duration: 12000,
+        action: { label: t("settings.export_reveal"), onClick: () => revealFile(r.name) },
+      });
     } catch (e) {
-      setMsg({ ok: false, text: (e as Error).message });
+      const text = (e as Error).message;
+      setMsg({ ok: false, text });
+      notify(text, { duration: 8000 });
     } finally {
       setExporting(false);
     }
   };
-  const reveal = async () => {
-    if (!saved) return;
+  const revealFile = async (name: string) => {
     try {
-      await api.post("/api/v1/user/data/export/reveal", { name: saved.name });
+      await api.post("/api/v1/user/data/export/reveal", { name });
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message });
     }
   };
+  const reveal = () => saved && revealFile(saved.name);
   const doImport = async (f: File) => {
     setPendingImport(null);
     setBusy(true);
@@ -92,7 +101,7 @@ export function Settings() {
 
   const exportBox = saved && (
     <div className="alert info" style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "center" }}>
-      <span style={{ flex: 1, wordBreak: "break-all" }}>{t("settings.export_saved", { path: saved.path })}</span>
+      <span style={{ flex: 1, wordBreak: "break-all" }}>{t(saved.inData ? "settings.export_toast_data_folder" : "settings.export_toast", { path: saved.path })}</span>
       <button className="btn sm" onClick={reveal}><FolderOpen size={14} /> {t("settings.export_reveal")}</button>
     </div>
   );
@@ -100,9 +109,10 @@ export function Settings() {
   const doWipe = async () => {
     setBusy(true);
     try {
-      const r = await api.del<{ documents: number; automations: number }>("/api/v1/user/data", { confirm: true });
+      const r = await api.del<{ documents: number; automations: number; backups_folder: string | null }>("/api/v1/user/data", { confirm: true });
       setWipe(null);
-      setMsg({ ok: true, text: t("settings.danger_done", { documents: r.documents, automations: r.automations }) });
+      const done = t("settings.danger_done", { documents: r.documents, automations: r.automations });
+      setMsg({ ok: true, text: r.backups_folder ? `${done} ${t("settings.danger_done_backups", { folder: r.backups_folder })}` : done });
       qc.invalidateQueries();
     } catch (e) {
       setWipe({ error: (e as Error).message });

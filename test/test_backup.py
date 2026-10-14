@@ -72,36 +72,65 @@ def test_import_rejects_other_org(client: TestClient, services, tmp_path) -> Non
     assert r.status_code == 400 and r.json()["code"] == "errors.backup_other_org"
 
 
-# --- export to the data folder (the desktop webview cannot save a download) ------------------------
-def test_post_export_writes_into_the_data_folder_and_says_where(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
+# --- export to a folder (the desktop webview cannot save a download) --------------------------------
+def test_post_export_writes_a_backup_outside_the_wiped_folders_and_says_where(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
     from app.gateways.sqlite.backup import read_meta
 
     upload_samples(client)
     r = client.post("/api/v1/user/data/export")
     assert r.status_code == 200, r.text
     body = r.json()
-    path = services.paths.root / "exports" / body["name"]
-    assert body["path"] == str(path) and path.is_file() and body["size_bytes"] == path.stat().st_size
+    path = services.paths.backups / body["name"]
+    assert body["path"] == str(path) and body["folder"] == str(services.paths.backups) and path.is_file()
+    assert body["in_data_folder"] is False and body["size_bytes"] == path.stat().st_size
     assert read_meta(path)["format"] == "husk-backup"  # a real, importable backup
 
 
-def test_exports_in_the_same_second_do_not_collide_and_old_ones_are_pruned(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
-    # no export replaces a file that is still kept, even within one second (names only repeat once pruned)
-    names = [client.post("/api/v1/user/data/export").json()["name"] for _ in range(4)]
-    assert len(set(names)) == 4
-    names += [client.post("/api/v1/user/data/export").json()["name"] for _ in range(4)]
-    kept = sorted(p.name for p in (services.paths.root / "exports").glob("husk-export-*.db"))
-    assert len(kept) == 5 and set(kept) <= set(names)
-    assert names[-1] in kept  # the newest survives
+def test_exports_in_the_same_second_do_not_collide_and_the_users_folder_is_never_pruned(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
+    names = [client.post("/api/v1/user/data/export").json()["name"] for _ in range(8)]
+    assert len(set(names)) == 8  # nothing replaced anything else
+    assert len(list(services.paths.backups.glob("husk-export-*.db"))) == 8  # and nothing was deleted
 
 
-def test_safety_copies_are_pruned_too(client: TestClient, services, tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_when_the_backup_folder_cannot_be_written_it_falls_back_and_says_so(settings, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from fastapi.testclient import TestClient as TC
+
+    from app.endpoints.deps import SESSION_COOKIE
+    from app.main import build_services, create_app
+    from test.conftest import login
+
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("x")  # a file where the backup folder should be: mkdir fails
+    st = settings.model_copy(update={"backup_dir": blocker / "Husk backups"})
+    svc = build_services(st)
+    with TC(create_app(st, svc), base_url="http://127.0.0.1:8765") as c:
+        c.cookies.set(SESSION_COOKIE, login(svc))
+        r = c.post("/api/v1/user/data/export").json()
+    assert r["in_data_folder"] is True and r["folder"] == str(svc.paths.exports)
+    assert (svc.paths.exports / r["name"]).is_file()
+
+
+def test_a_failed_export_leaves_no_file(client: TestClient, services, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from app.gateways.sqlite import backup
+
+    real = backup._write_export
+
+    def broken(db, paths, version, out):  # type: ignore[no-untyped-def]
+        real(db, paths, version, out)  # the file exists ...
+        raise RuntimeError("disk full")  # ... then the export fails
+
+    monkeypatch.setattr(backup, "_write_export", broken)
+    assert client.post("/api/v1/user/data/export").status_code == 500
+    assert not list(services.paths.backups.glob("*.db"))
+
+
+def test_safety_copies_are_pruned(client: TestClient, services, tmp_path) -> None:  # type: ignore[no-untyped-def]
     upload_samples(client)
     data = _export(client, tmp_path)
     for _ in range(5):
         r = client.post("/api/v1/user/data/import", files={"file": ("b.db", data)}, data={"confirm": "true"})
         assert r.status_code == 200, r.text
-    assert len(list((services.paths.root / "exports").glob("pre-import-*.db"))) == 3
+    assert len(list(services.paths.exports.glob("pre-import-*.db"))) == 3
 
 
 def test_reveal_only_opens_backups_this_app_created(client: TestClient, services, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -111,7 +140,7 @@ def test_reveal_only_opens_backups_this_app_created(client: TestClient, services
     monkeypatch.setattr(filemanager, "reveal", lambda p: opened.append(p))
     name = client.post("/api/v1/user/data/export").json()["name"]
     assert client.post("/api/v1/user/data/export/reveal", json={"name": name}).status_code == 200
-    assert opened == [services.paths.root / "exports" / name]
+    assert opened == [services.paths.backups / name]
     for bad in ("../husk.db", "/etc/passwd", "husk.db", "husk-export-2026-01-01-000000.db/../../x", "..\\x.db"):
         assert client.post("/api/v1/user/data/export/reveal", json={"name": bad}).status_code == 400, bad
     missing = client.post("/api/v1/user/data/export/reveal", json={"name": "husk-export-2020-01-01-000000.db"})
@@ -127,3 +156,22 @@ def test_reveal_command_never_goes_through_a_shell() -> None:
     assert reveal_command(p, "darwin") == ["open", "-R", str(p)]
     assert reveal_command(p, "win32") == ["explorer", f"/select,{p}"]
     assert reveal_command(p, "linux") == ["xdg-open", str(p.parent)]
+
+
+def test_delete_all_data_keeps_exported_backups_and_says_where(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
+    name = client.post("/api/v1/user/data/export").json()["name"]
+    r = client.request("DELETE", "/api/v1/user/data", json={"confirm": True})
+    assert r.status_code == 200 and r.json()["backups_folder"] == str(services.paths.backups)
+    assert (services.paths.backups / name).is_file()
+
+
+def test_the_page_shell_is_revalidated_and_hashed_assets_are_immutable(client: TestClient) -> None:
+    from app.main import FRONTEND_DIST
+
+    if not (FRONTEND_DIST / "index.html").exists():
+        import pytest
+
+        pytest.skip("UI not built")
+    assert client.get("/").headers["cache-control"] == "no-cache"
+    asset = next((FRONTEND_DIST / "assets").glob("*.js"))
+    assert "immutable" in client.get(f"/assets/{asset.name}").headers["cache-control"]

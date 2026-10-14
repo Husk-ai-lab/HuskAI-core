@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     data_dir: Path | None = Field(None, validation_alias=AliasChoices("HUSK_DATA_DIR"))
     launch_secret: str | None = Field(None, validation_alias=AliasChoices("HUSK_LAUNCH_SECRET"))
     # Where connector credentials live: a private file in the data folder (no keychain prompts) or the OS keychain.
+    # Where "Export a backup" writes (default: <Documents>/Husk backups, outside the data folder so that Delete all data
+    # does not remove it). See helpers/paths.py.
+    backup_dir: Path | None = Field(None, validation_alias=AliasChoices("HUSK_BACKUP_DIR"))
     secret_store: Literal["file", "keychain"] = Field("file", validation_alias=AliasChoices("HUSK_SECRET_STORE"))
     # Where the browser UI lives in development (Vite dev server); in production the
     # UI is served by FastAPI itself from app/frontend/dist.

@@ -666,8 +666,10 @@
   "errors.export_reveal_invalid": "Questo non è un file di backup creato da Husk.",
   "errors.export_reveal_missing": "Il file di backup non c'è più.",
   "errors.export_reveal_failed": "Non è stato possibile aprire la cartella. Il backup è nella cartella dei dati di Husk, dentro exports.",
-  "settings.export_saved": "Backup salvato: {path}",
   "settings.export_reveal": "Mostra nella cartella",
   "settings.exporting": "Esportazione…",
-  "common.confirm": "Conferma"
+  "common.confirm": "Conferma",
+  "settings.export_toast": "Backup salvato in {path}",
+  "settings.export_toast_data_folder": "Backup salvato in {path}. Si trova nella cartella dei dati di Husk, quindi \"Elimina tutti i dati\" lo cancellerebbe: copialo in un posto sicuro.",
+  "settings.danger_done_backups": "I backup esportati sono conservati in {folder}."
 }
