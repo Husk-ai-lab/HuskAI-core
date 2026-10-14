@@ -49,6 +49,9 @@ NATIVE_SUFFIXES = {".dylib", ".pyd", ".dll"}
 # Linux), python3xx.dll (Windows) or plain `Python` (a macOS framework build such as the hosted runners'
 # and python.org installers).
 LIBPYTHON = ("libpython3*", "python3*.dll", "Python")
+# Distribution metadata that must be bundled (see installer.COPY_METADATA): without it the LangChain tracing
+# instrumentation silently does nothing in the frozen app.
+REQUIRED_METADATA = ("langchain_core-*.dist-info",)
 LIBPYTHON_ARCHIVE = re.compile(rf"{NAME}/_internal/(libpython3.*|python3\d*\.dll|Python)")
 JUNK_NAMES = {".env", ".DS_Store", ".bare-executable"}
 CPU = {"macho": {0x0100000C: "arm64", 0x01000007: "x86_64"},
@@ -151,6 +154,10 @@ def check_folder(folder: Path, triple: str) -> tuple[list[str], int]:
         problems.append("_internal/ is missing: the executable cannot start without it")
     elif not any(f.is_file() for pat in LIBPYTHON for f in internal.glob(pat)):
         problems.append("_internal/ holds no libpython (the Python runtime)")
+    if internal.is_dir():
+        for pat in REQUIRED_METADATA:
+            if not any(internal.glob(pat)):
+                problems.append(f"_internal/ holds no {pat} (package metadata the app reads at run time)")
     want, wrong, checked = expected_arch(triple), [], 0
     for p in sorted(folder.rglob("*")) if folder.is_dir() else []:
         if p.name.startswith("._") or p.name in JUNK_NAMES:

@@ -34,6 +34,9 @@ SEP = ";" if os.name == "nt" else ":"
 # Packages that ship data files or plugins (models, tokenizers, entry points). Everything else,
 # including mcp and langchain_*, is found by PyInstaller's static import analysis.
 COLLECT_ALL = ["markitdown", "magika", "bm25s", "Stemmer", "tiktoken", "tiktoken_ext", "openinference", "pdfminer"]
+# Distribution metadata the app asks for at run time: OpenInference's LangChain instrumentor checks that
+# `langchain_core` is installed through importlib.metadata and silently instruments nothing without it.
+COPY_METADATA = ["langchain-core"]
 EXCLUDE = ["mcp.cli", "tkinter", "matplotlib", "IPython", "pytest"]
 HIDDEN = ["uvicorn.logging", "uvicorn.loops.auto", "uvicorn.protocols.http.auto", "uvicorn.protocols.websockets.auto",
           "uvicorn.lifespan.on", "keyring.backends", "mcp.client.streamable_http", "langchain_openai", "apscheduler.triggers.cron"]
@@ -90,6 +93,8 @@ def build_binary() -> Path:
     ]
     for pkg in COLLECT_ALL:
         args += ["--collect-all", pkg]
+    for dist in COPY_METADATA:
+        args += ["--copy-metadata", dist]
     for m in EXCLUDE:
         args += ["--exclude-module", m]
     for h in HIDDEN:

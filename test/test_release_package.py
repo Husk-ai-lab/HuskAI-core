@@ -43,6 +43,7 @@ def build_folder(root: Path, triple: str = MAC_ARM, cpu: int = ARM) -> Path:
     exe.chmod(0o755)
     (internal / ("python311.dll" if "windows" in triple else "libpython3.11.dylib")).write_bytes(native)
     (internal / "base_library.zip").write_bytes(b"PK")
+    (internal / "langchain_core-0.3.0.dist-info").mkdir()
     return folder
 
 
@@ -79,6 +80,15 @@ def test_the_alpha_incident_is_caught(tmp_path: Path) -> None:
     (folder / "husk-backend").write_bytes(macho(ARM))
     problems, _ = release.check_folder(folder, MAC_ARM)
     assert any("_internal/ is missing" in p for p in problems)
+
+
+def test_a_folder_without_langchain_metadata_is_refused(tmp_path: Path) -> None:
+    import shutil
+
+    folder = build_folder(tmp_path)
+    shutil.rmtree(folder / "_internal" / "langchain_core-0.3.0.dist-info")
+    problems, _ = release.check_folder(folder, MAC_ARM)
+    assert any("langchain_core" in p for p in problems)
 
 
 def test_a_folder_without_libpython_is_refused(tmp_path: Path) -> None:
