@@ -13,9 +13,11 @@ re-run migrations. The caller then rebuilds the search indexes.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import sqlite3
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +29,11 @@ from app.i18n.errors import LocalizedError
 FORMAT = "husk-backup"
 FORMAT_VERSION = "1"
 EXPORT_TABLES = ("husk_export_meta", "husk_export_files")
+
+KEEP_EXPORTS = 5  # newest manual backups kept in exports/
+KEEP_SAFETY_COPIES = 3  # newest "pre-import" copies kept
+BACKUP_NAME = re.compile(r"^(husk-export|pre-import)-\d{4}-\d{2}-\d{2}-\d{6}(-\d{1,3})?\.db$")
+_export_lock = threading.Lock()  # one export at a time: names are chosen and files created under it
 
 
 class BackupError(LocalizedError):
@@ -41,13 +48,38 @@ class ImportResult:
     safety_copy: str
 
 
-def export_backup(db: Database, paths: DataPaths, app_version: str) -> Path:
+def _unique(out_dir: Path, prefix: str) -> Path:
+    """`<prefix>-<UTC stamp>.db`, with `-2`, `-3`... when that second is taken (two clicks in a row)."""
     stamp = utcnow().strftime("%Y-%m-%d-%H%M%S")
+    out, n = out_dir / f"{prefix}-{stamp}.db", 1
+    while out.exists():
+        n += 1
+        out = out_dir / f"{prefix}-{stamp}-{n}.db"
+    return out
+
+
+def prune_exports(out_dir: Path, prefix: str, keep: int) -> None:
+    """Keep the `keep` newest files of one kind. Only names this module creates are ever touched."""
+    files = [f for f in out_dir.glob(f"{prefix}-*.db") if BACKUP_NAME.match(f.name) and f.is_file()]
+    files.sort(key=lambda f: (f.stat().st_mtime_ns, f.name), reverse=True)
+    for old in files[keep:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
+def export_backup(db: Database, paths: DataPaths, app_version: str) -> Path:
     out_dir = paths.root / "exports"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"husk-export-{stamp}.db"
-    if out.exists():
-        out.unlink()
+    with _export_lock:
+        out = _unique(out_dir, "husk-export")
+        _write_export(db, paths, app_version, out)
+        prune_exports(out_dir, "husk-export", KEEP_EXPORTS)
+    return out
+
+
+def _write_export(db: Database, paths: DataPaths, app_version: str, out: Path) -> None:
     with db.read() as c:
         c.execute("VACUUM INTO ?", (str(out),))
     conn = sqlite3.connect(out)
@@ -84,7 +116,6 @@ def export_backup(db: Database, paths: DataPaths, app_version: str) -> Path:
         conn.execute("VACUUM")
     finally:
         conn.close()
-    return out
 
 
 def read_meta(path: Path) -> dict[str, str]:
@@ -138,10 +169,13 @@ def import_backup(db: Database, paths: DataPaths, backup_file: Path, require_org
             conn.close()
 
         # Safety copy of what we are about to replace.
-        safety = paths.root / "exports" / f"pre-import-{utcnow().strftime('%Y-%m-%d-%H%M%S')}.db"
-        safety.parent.mkdir(parents=True, exist_ok=True)
-        with db.read() as c:
-            c.execute("VACUUM INTO ?", (str(safety),))
+        out_dir = paths.root / "exports"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        with _export_lock:
+            safety = _unique(out_dir, "pre-import")
+            with db.read() as c:
+                c.execute("VACUUM INTO ?", (str(safety),))
+            prune_exports(out_dir, "pre-import", KEEP_SAFETY_COPIES)
 
         src = sqlite3.connect(staged)
         try:

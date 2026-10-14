@@ -70,3 +70,60 @@ def test_import_rejects_other_org(client: TestClient, services, tmp_path) -> Non
     con.close()
     r = client.post("/api/v1/user/data/import", files={"file": ("x.db", f.read_bytes())}, data={"confirm": "true"})
     assert r.status_code == 400 and r.json()["code"] == "errors.backup_other_org"
+
+
+# --- export to the data folder (the desktop webview cannot save a download) ------------------------
+def test_post_export_writes_into_the_data_folder_and_says_where(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
+    from app.gateways.sqlite.backup import read_meta
+
+    upload_samples(client)
+    r = client.post("/api/v1/user/data/export")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    path = services.paths.root / "exports" / body["name"]
+    assert body["path"] == str(path) and path.is_file() and body["size_bytes"] == path.stat().st_size
+    assert read_meta(path)["format"] == "husk-backup"  # a real, importable backup
+
+
+def test_exports_in_the_same_second_do_not_collide_and_old_ones_are_pruned(client: TestClient, services) -> None:  # type: ignore[no-untyped-def]
+    # no export replaces a file that is still kept, even within one second (names only repeat once pruned)
+    names = [client.post("/api/v1/user/data/export").json()["name"] for _ in range(4)]
+    assert len(set(names)) == 4
+    names += [client.post("/api/v1/user/data/export").json()["name"] for _ in range(4)]
+    kept = sorted(p.name for p in (services.paths.root / "exports").glob("husk-export-*.db"))
+    assert len(kept) == 5 and set(kept) <= set(names)
+    assert names[-1] in kept  # the newest survives
+
+
+def test_safety_copies_are_pruned_too(client: TestClient, services, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    upload_samples(client)
+    data = _export(client, tmp_path)
+    for _ in range(5):
+        r = client.post("/api/v1/user/data/import", files={"file": ("b.db", data)}, data={"confirm": "true"})
+        assert r.status_code == 200, r.text
+    assert len(list((services.paths.root / "exports").glob("pre-import-*.db"))) == 3
+
+
+def test_reveal_only_opens_backups_this_app_created(client: TestClient, services, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from app.helpers import filemanager
+
+    opened: list = []
+    monkeypatch.setattr(filemanager, "reveal", lambda p: opened.append(p))
+    name = client.post("/api/v1/user/data/export").json()["name"]
+    assert client.post("/api/v1/user/data/export/reveal", json={"name": name}).status_code == 200
+    assert opened == [services.paths.root / "exports" / name]
+    for bad in ("../husk.db", "/etc/passwd", "husk.db", "husk-export-2026-01-01-000000.db/../../x", "..\\x.db"):
+        assert client.post("/api/v1/user/data/export/reveal", json={"name": bad}).status_code == 400, bad
+    missing = client.post("/api/v1/user/data/export/reveal", json={"name": "husk-export-2020-01-01-000000.db"})
+    assert missing.status_code == 404 and len(opened) == 1
+
+
+def test_reveal_command_never_goes_through_a_shell() -> None:
+    from pathlib import Path
+
+    from app.helpers.filemanager import reveal_command
+
+    p = Path("/data/exports/husk-export-2026-10-14-124944.db")
+    assert reveal_command(p, "darwin") == ["open", "-R", str(p)]
+    assert reveal_command(p, "win32") == ["explorer", f"/select,{p}"]
+    assert reveal_command(p, "linux") == ["xdg-open", str(p.parent)]

@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Mail, Send, ShieldCheck, Upload } from "lucide-react";
+import { Download, FolderOpen, Mail, Send, ShieldCheck, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Personality, PersonalityId } from "../api/types";
 import { ConnectorModal } from "../components/ConnectorModal";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { ConnectorStatus } from "../components/ConnectorStatus";
 import { DeleteDataModal } from "../components/DeleteDataModal";
 import { TopBar } from "../components/TopBar";
@@ -25,6 +26,9 @@ export function Settings() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<{ name: string; path: string } | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [pendingImport, setPendingImport] = useState<File | null>(null);
   const { data: connectors } = useConnectors();
   const [wipe, setWipe] = useState<{ error: string | null } | null>(null);
   const [params, setParams] = useSearchParams();
@@ -45,8 +49,30 @@ export function Settings() {
     qc.clear();
     window.location.href = "/accesso";
   };
+  // A native webview cannot save a browser download: the backend writes the file into the data folder and says where.
+  const doExport = async () => {
+    setExporting(true);
+    setMsg(null);
+    setSaved(null);
+    try {
+      const r = await api.post<{ name: string; path: string }>("/api/v1/user/data/export");
+      setSaved({ name: r.name, path: r.path });
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setExporting(false);
+    }
+  };
+  const reveal = async () => {
+    if (!saved) return;
+    try {
+      await api.post("/api/v1/user/data/export/reveal", { name: saved.name });
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    }
+  };
   const doImport = async (f: File) => {
-    if (!confirm(t("settings.import_confirm"))) return;
+    setPendingImport(null);
     setBusy(true);
     setMsg(null);
     const fd = new FormData();
@@ -63,6 +89,13 @@ export function Settings() {
       if (fileInput.current) fileInput.current.value = "";
     }
   };
+
+  const exportBox = saved && (
+    <div className="alert info" style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "center" }}>
+      <span style={{ flex: 1, wordBreak: "break-all" }}>{t("settings.export_saved", { path: saved.path })}</span>
+      <button className="btn sm" onClick={reveal}><FolderOpen size={14} /> {t("settings.export_reveal")}</button>
+    </div>
+  );
 
   const doWipe = async () => {
     setBusy(true);
@@ -152,11 +185,12 @@ export function Settings() {
             <div className="setting">
               <div className="txt"><b>{t("settings.backup")}</b><span>{t("settings.backup_desc")}</span></div>
               <div style={{ display: "flex", gap: 8 }}>
-                <a className="btn sm" href="/api/v1/user/data/export" download><Download size={14} /> {t("settings.export")}</a>
+                <button className="btn sm" disabled={exporting} onClick={doExport}><Download size={14} /> {exporting ? t("settings.exporting") : t("settings.export")}</button>
                 <button className="btn sm" disabled={busy} onClick={() => fileInput.current?.click()}><Upload size={14} /> {busy ? t("settings.importing") : t("settings.import")}</button>
-                <input ref={fileInput} type="file" accept=".db,.sqlite,.sqlite3" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
+                <input ref={fileInput} type="file" accept=".db,.sqlite,.sqlite3" hidden onChange={(e) => e.target.files?.[0] && setPendingImport(e.target.files[0])} />
               </div>
             </div>
+            {exportBox}
             {msg && <div className={`alert ${msg.ok ? "info" : ""}`} style={{ marginBottom: 16 }}>{msg.text}</div>}
             <div className="setting">
               <div className="txt"><b>{t("settings.data_folder")}</b><span className="mono" style={{ fontSize: 12 }}>{sys?.data_dir}</span></div>
@@ -164,7 +198,7 @@ export function Settings() {
             <div className="setting">
               <div className="txt"><b>{t("settings.danger_title")}</b><span>{t("settings.danger_desc")}</span></div>
               <div style={{ display: "flex", gap: 8 }}>
-                <a className="btn sm" href="/api/v1/user/data/export" download><Download size={14} /> {t("settings.danger_export_first")}</a>
+                <button className="btn sm" disabled={exporting} onClick={doExport}><Download size={14} /> {exporting ? t("settings.exporting") : t("settings.danger_export_first")}</button>
                 <button className="btn sm danger" disabled={busy} onClick={() => setWipe({ error: null })}>{t("settings.danger_button")}</button>
               </div>
             </div>
@@ -183,6 +217,11 @@ export function Settings() {
           </div>
         </div>
       </div>
+      {pendingImport && (
+        <ConfirmModal title={t("settings.import")} body={t("settings.import_confirm")} danger
+                      onConfirm={() => doImport(pendingImport)}
+                      onClose={() => { setPendingImport(null); if (fileInput.current) fileInput.current.value = ""; }} />
+      )}
       {wipe && <DeleteDataModal busy={busy} error={wipe.error} onConfirm={doWipe} onClose={() => setWipe(null)} />}
       {modal && <ConnectorModal kind={modal.kind} initialTab={modal.tab} onClose={closeModal} />}
     </>

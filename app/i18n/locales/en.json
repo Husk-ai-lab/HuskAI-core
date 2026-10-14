@@ -661,5 +661,13 @@
   "upload.submit_other": "Upload {count} documents",
   "upload.subtitle": "Procedures, orders, bills of materials, reports, work instructions. Files stay on this device.",
   "upload.title": "Upload new documents",
-  "upload.uploading": "Uploading…"
+  "upload.uploading": "Uploading…",
+  "errors.export_failed": "The backup could not be written. Check that there is free space in the data folder and try again.",
+  "errors.export_reveal_invalid": "That is not a backup file Husk created.",
+  "errors.export_reveal_missing": "That backup file is no longer there.",
+  "errors.export_reveal_failed": "The folder could not be opened. The backup is in the Husk data folder, under exports.",
+  "settings.export_saved": "Backup saved: {path}",
+  "settings.export_reveal": "Show in folder",
+  "settings.exporting": "Exporting…",
+  "common.confirm": "Confirm"
 }

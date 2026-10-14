@@ -29,7 +29,7 @@ Original files: `documents/<org>/<doc_id>.<ext>`. BM25 index: `bm25/<org>/` (reb
 
 ### Single-file backup
 
-Settings → **Esporta** writes `exports/husk-export-<timestamp>.db`: a `VACUUM INTO` snapshot plus `husk_export_meta` (format, versions, org ids) and `husk_export_files` (every original document as a BLOB with SHA-256). Sessions and AI keys are stripped; on import the importing user keeps their own key.
+Settings → **Esporta** (`POST /api/v1/user/data/export`) writes `exports/husk-export-<timestamp>.db` into the data folder and shows the path with a **Mostra nella cartella** button (`/data/export/reveal`; only names this app created). It does not use a browser download, because the desktop shell's webview cannot save one (`GET /api/v1/user/data/export` remains for a plain browser). The newest 5 exports and 3 `pre-import-*` copies are kept; older ones are removed after a successful export. The file is: a `VACUUM INTO` snapshot plus `husk_export_meta` (format, versions, org ids) and `husk_export_files` (every original document as a BLOB with SHA-256). Sessions and AI keys are stripped; on import the importing user keeps their own key.
 **Importa** validates the file (integrity check, format, org, file hashes, safe paths), writes a safety copy (`exports/pre-import-*.db`), copies the snapshot into the live database with SQLite's online backup API, restores the files, migrates and rebuilds the indexes.
 
 ## Neon `husk-core` — anonymous, read-only Data API

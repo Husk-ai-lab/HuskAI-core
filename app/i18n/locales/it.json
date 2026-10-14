@@ -661,5 +661,13 @@
   "upload.submit_other": "Carica {count} documenti",
   "upload.subtitle": "Procedure, ordini, distinte base, report, istruzioni operative. I file restano su questo dispositivo.",
   "upload.title": "Carica nuovi documenti",
-  "upload.uploading": "Caricamento…"
+  "upload.uploading": "Caricamento…",
+  "errors.export_failed": "Non è stato possibile scrivere il backup. Controlla che ci sia spazio libero nella cartella dei dati e riprova.",
+  "errors.export_reveal_invalid": "Questo non è un file di backup creato da Husk.",
+  "errors.export_reveal_missing": "Il file di backup non c'è più.",
+  "errors.export_reveal_failed": "Non è stato possibile aprire la cartella. Il backup è nella cartella dei dati di Husk, dentro exports.",
+  "settings.export_saved": "Backup salvato: {path}",
+  "settings.export_reveal": "Mostra nella cartella",
+  "settings.exporting": "Esportazione…",
+  "common.confirm": "Conferma"
 }

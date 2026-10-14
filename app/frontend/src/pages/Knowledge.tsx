@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Doc, DocDetail, DocSearchResult, Highlight } from "../api/types";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { TopBar } from "../components/TopBar";
 import { UploadModal } from "../components/UploadModal";
 import { useI18n } from "../i18n";
@@ -52,8 +53,9 @@ export function Knowledge() {
     queryFn: () => api.get<DocDetail>(`/api/v1/documents/${selectedId}`),
   });
   const hit = searching ? results?.find((r) => r.document.id === selectedId)?.best : undefined;
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const remove = async (id: string) => {
-    if (!confirm(t("knowledge.delete_confirm"))) return;
+    setPendingDelete(null);
     await api.del(`/api/v1/documents/${id}`);
     setParams({});
     qc.invalidateQueries({ queryKey: ["documents"] });
@@ -113,7 +115,7 @@ export function Knowledge() {
                       <span className="chip accent">{detail.document.kind}</span>
                       {detail.document.department && <span className="chip">{detail.document.department}</span>}
                       <span style={{ flex: 1 }} />
-                      <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={() => remove(detail.document.id)} title={t("common.delete")}><Trash2 size={13} /></button>
+                      <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={() => setPendingDelete(detail.document.id)} title={t("common.delete")}><Trash2 size={13} /></button>
                     </div>
                     <h2>{detail.document.title}</h2>
                     <div className="mono muted" style={{ fontSize: 11.5 }}>{detail.document.source_path || detail.document.filename}</div>
@@ -165,6 +167,10 @@ export function Knowledge() {
         </div>
       </div>
       {upload && <UploadModal onClose={() => setUpload(false)} />}
+      {pendingDelete && (
+        <ConfirmModal title={t("common.delete")} body={t("knowledge.delete_confirm")} danger confirmLabel={t("common.delete")}
+                      onConfirm={() => remove(pendingDelete)} onClose={() => setPendingDelete(null)} />
+      )}
     </>
   );
 }

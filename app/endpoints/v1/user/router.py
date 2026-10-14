@@ -20,9 +20,10 @@ from app.data.models.user import Me, User, UserSettings, UserSettingsPatch
 from app.endpoints.deps import SESSION_COOKIE, CurrentUser, current_user, get_services
 from app.gateways.clerk.oidc import ClerkError
 from app.gateways.gateway.errors import GatewayError
-from app.gateways.sqlite.backup import BackupError, export_backup, import_backup
+from app.gateways.sqlite.backup import BACKUP_NAME, BackupError, export_backup, import_backup
 from app.gateways.sqlite.repositories import SessionRepo, UsageRepo, UserRepo
 from app.gateways.sqlite.wipe import WipeError, wipe_data
+from app.helpers import filemanager
 from app.helpers.ids import new_secret
 from app.helpers.logging import get_logger
 from app.helpers.time import utcnow
@@ -202,6 +203,45 @@ def usage(cu: CurrentUser = Depends(current_user), services: Services = Depends(
 async def export_all(cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)) -> FileResponse:
     path = await asyncio.to_thread(export_backup, services.db, services.paths, services.version)
     return FileResponse(path, filename=path.name, media_type="application/vnd.sqlite3")
+
+
+class ExportSaved(BaseModel):
+    name: str
+    path: str  # where it was written, inside the data folder
+    size_bytes: int
+
+
+@router.post("/data/export", response_model=ExportSaved)
+async def export_to_folder(cu: CurrentUser = Depends(current_user), services: Services = Depends(get_services)) -> ExportSaved:
+    """Writes the backup into the data folder and says where. The app window (a native webview) cannot save a
+    browser download, so the UI uses this and offers "Show in folder"; the GET above stays for a plain browser."""
+    try:
+        path = await asyncio.to_thread(export_backup, services.db, services.paths, services.version)
+    except Exception as exc:
+        log.warning("export failed: %s", type(exc).__name__)
+        api_error(500, "errors.export_failed")
+    return ExportSaved(name=path.name, path=str(path), size_bytes=path.stat().st_size)
+
+
+class RevealRequest(BaseModel):
+    name: str = Field(..., max_length=120)
+
+
+@router.post("/data/export/reveal")
+async def reveal_export(body: RevealRequest, cu: CurrentUser = Depends(current_user),
+                        services: Services = Depends(get_services)) -> dict:
+    """Shows one backup file in the file manager. Only a file name this app created, inside `exports/`."""
+    if not BACKUP_NAME.match(body.name):
+        api_error(400, "errors.export_reveal_invalid")
+    target = services.paths.root / "exports" / body.name
+    if not target.is_file():
+        api_error(404, "errors.export_reveal_missing")
+    try:
+        await asyncio.to_thread(filemanager.reveal, target)
+    except OSError as exc:
+        log.warning("could not open the file manager: %s", type(exc).__name__)
+        api_error(503, "errors.export_reveal_failed")
+    return {"ok": True}
 
 
 class ImportResponse(BaseModel):
