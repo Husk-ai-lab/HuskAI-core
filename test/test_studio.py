@@ -32,7 +32,7 @@ async def test_probe_when_studio_absent() -> None:
 async def test_probe_when_studio_alive(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     s = Settings(HUSK_ENV="test", HUSK_STUDIO_UI_URL="http://127.0.0.1:7654", HUSK_STUDIO_OTLP_URL="http://127.0.0.1:7654")
     respx.get("http://127.0.0.1:7654/api/v1/runs").mock(return_value=httpx.Response(200, json=[]))
-    respx.get("http://127.0.0.1:7654/v1/traces").mock(return_value=httpx.Response(405))
+    respx.post("http://127.0.0.1:7654/v1/traces").mock(return_value=httpx.Response(200, json={"partialSuccess": {}}))
     client = StudioClient(s)
 
     async def fake_tools(self):  # type: ignore[no-untyped-def]

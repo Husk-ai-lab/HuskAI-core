@@ -169,3 +169,13 @@ Failed to load Python shared library '…/bin/husk/alpha-release/_internal/libpy
 5. Run the archive check in §2 (executable and `_internal/libpython*` present).
 6. Publish the GitHub release with the tag, the assets and `SHA256SUMS`.
 7. On a clean profile: let the shell install it, confirm `logs/husk.log` shows `Husk <version> ready on http://127.0.0.1:8765`, then stop the shell and confirm no `husk-backend` process remains.
+
+
+## How Husk notices Husk Studio
+
+Husk probes `HUSK_STUDIO_UI_URL` (`GET /api/v1/runs?limit=1`, 2 s) and then checks the trace ingest with a **POST of an
+empty OTLP document** to `<HUSK_STUDIO_OTLP_URL>/v1/traces` (Studio answers `200 {"partialSuccess":{}}` and stores
+nothing; a GET is not a valid test, Studio's SPA fallback answers 404 for any `v1/...` GET). The probe runs every 3 s
+for the first 3 minutes after start while Studio is absent (the shell starts Studio after Husk), every 10 s after
+that, and every 30 s while it is running. One missed probe keeps a running Studio; two mark it as gone. The UI asks
+`/api/v1/system/status` every 5 s while Studio is not running.

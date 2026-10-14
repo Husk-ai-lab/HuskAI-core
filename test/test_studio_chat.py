@@ -79,7 +79,7 @@ async def test_only_read_only_tools_are_kept(monkeypatch) -> None:  # type: igno
     monkeypatch.setattr(StudioClient, "_enable_tracing", lambda self: None)
     with respx.mock:
         respx.get("http://127.0.0.1:7654/api/v1/runs").mock(return_value=httpx.Response(200, json=[]))
-        respx.get("http://127.0.0.1:7654/v1/traces").mock(return_value=httpx.Response(405))
+        respx.post("http://127.0.0.1:7654/v1/traces").mock(return_value=httpx.Response(200, json={"partialSuccess": {}}))
         st = await client.probe()
     assert st.mcp and "delete_run" in st.mcp_tools  # advertised…
     assert [d["name"] for d in client.tool_defs] == ["explain_failure", "get_trace"]  # …but never offered

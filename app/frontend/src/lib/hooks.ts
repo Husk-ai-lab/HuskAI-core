@@ -4,8 +4,16 @@ import type { Automation, DiscoveryStateResp, Doc, Entitlement, Me, Suggestion, 
 import { useI18n } from "../i18n";
 
 export const useMe = () => useQuery({ queryKey: ["me"], queryFn: () => api.get<Me>("/api/v1/user/me"), retry: false });
+/** Studio is started after Husk by the shell, so ask more often until it shows up. */
+export const SYSTEM_POLL_MS = { studioUp: 30_000, studioDown: 5_000 };
+export const systemPollMs = (s?: Pick<SystemStatus, "studio"> | null): number =>
+  s?.studio?.alive ? SYSTEM_POLL_MS.studioUp : SYSTEM_POLL_MS.studioDown;
 export const useSystem = () =>
-  useQuery({ queryKey: ["system"], queryFn: () => api.get<SystemStatus>("/api/v1/system/status"), refetchInterval: 30_000 });
+  useQuery({
+    queryKey: ["system"],
+    queryFn: () => api.get<SystemStatus>("/api/v1/system/status"),
+    refetchInterval: (q) => systemPollMs(q.state.data),
+  });
 /** Has the organisation's installation been activated (husk-gateway billing state)? `allowed: null` = unknown. */
 export const useEntitlement = (enabled = true) =>
   useQuery({ queryKey: ["entitlement"], queryFn: () => api.get<Entitlement>("/api/v1/user/entitlement"), enabled, retry: false });

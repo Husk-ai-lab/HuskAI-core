@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import time
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -91,10 +92,25 @@ def _mark_interrupted_runs(services: Services) -> None:
         )
 
 
+STUDIO_FAST_PROBE_S = 3.0  # Studio is started after Husk by the shell: look often right after start
+STUDIO_FAST_WINDOW_S = 180.0
+STUDIO_SLOW_MISS_S = 10.0
+
+
+def studio_probe_interval(alive: bool, since_start_s: float, steady_s: float) -> float:
+    """How long to wait before the next Studio probe: relaxed while it is running, quick while it has not
+    appeared yet (the shell starts it after Husk), then every 10 s."""
+    if alive:
+        return float(steady_s)
+    return min(float(steady_s), STUDIO_FAST_PROBE_S if since_start_s < STUDIO_FAST_WINDOW_S else STUDIO_SLOW_MISS_S)
+
+
 async def _studio_loop(services: Services) -> None:
+    started = time.monotonic()
     while True:
-        await services.studio.probe()
-        await asyncio.sleep(services.settings.studio_probe_s)
+        status = await services.studio.probe()
+        await asyncio.sleep(studio_probe_interval(status.alive, time.monotonic() - started,
+                                                  services.settings.studio_probe_s))
 
 
 def create_app(settings: Settings | None = None, services: Services | None = None) -> FastAPI:

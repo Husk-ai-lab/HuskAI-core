@@ -22,6 +22,8 @@ from app.helpers.time import utcnow
 
 log = get_logger("studio")
 
+PROBE_TIMEOUT_S = 2.0  # a busy Studio (ingesting spans) can take longer than a second to answer
+MISSES_BEFORE_DOWN = 2  # one missed probe does not flip a running Studio to "not running"
 SELF_HEAL_TOOLS = ("explain_failure", "get_trace", "list_errors", "get_run", "get_span")
 # Only read-only tools are ever offered to the Builder, whatever this Studio advertises.
 READ_ONLY_PREFIXES = ("get_", "list_", "explain_", "search_")
@@ -37,6 +39,7 @@ class StudioClient:
         self.status = StudioStatus(ui_url=settings.studio_ui_url, run_url_template=settings.studio_run_url_template)
         self.tool_defs: list[dict[str, Any]] = []  # name, description, input_schema (read-only tools only)
         self._tracing_on = False
+        self._misses = 0
         self._lock = asyncio.Lock()
 
     @staticmethod
@@ -52,15 +55,19 @@ class StudioClient:
             tools: list[str] = []
             if self._is_loopback(s.studio_ui_url):
                 try:
-                    async with httpx.AsyncClient(timeout=0.8) as http:
+                    async with httpx.AsyncClient(timeout=PROBE_TIMEOUT_S) as http:
                         r = await http.get(s.studio_ui_url.rstrip("/") + "/api/v1/runs", params={"limit": 1})
                         alive = r.status_code < 500
                         if alive and self._is_loopback(s.studio_otlp_url):
-                            # A GET on the ingest answers 405 when the route exists.
-                            r2 = await http.get(s.studio_otlp_url.rstrip("/") + "/v1/traces")
-                            otlp = r2.status_code in (200, 400, 405, 415)
+                            otlp = await self._otlp_ready(http)
                 except (httpx.HTTPError, OSError):
                     alive = False
+            if alive:
+                self._misses = 0
+            else:
+                self._misses += 1
+                if self.status.alive and self._misses < MISSES_BEFORE_DOWN:
+                    return self.status  # one hiccup (Studio busy): keep what we knew until the next probe
             defs: list[dict[str, Any]] = []
             if alive and self._is_loopback(s.studio_mcp_url):
                 found = await self._list_mcp_tools()
@@ -81,6 +88,16 @@ class StudioClient:
                 run_url_template=s.studio_run_url_template,
             )
             return self.status
+
+    async def _otlp_ready(self, http: httpx.AsyncClient) -> bool:
+        """Is Studio's trace ingest there? A POST of an EMPTY OTLP document: the route answers 200 and stores
+        nothing. (A GET is not a test: Studio's SPA fallback answers 404 for any `v1/...` GET, so the old GET
+        probe never saw the ingest and tracing was never enabled.)"""
+        try:
+            r = await http.post(self.settings.studio_otlp_url.rstrip("/") + "/v1/traces", json={"resourceSpans": []})
+        except (httpx.HTTPError, OSError):
+            return False
+        return r.status_code in (200, 202, 400, 415)
 
     async def _list_mcp_tools(self) -> list[dict[str, Any]]:
         """Advertised tools with their schemas (the Builder turns read-only ones into tools)."""
