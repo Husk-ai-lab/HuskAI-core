@@ -424,6 +424,7 @@
   "login.error_failed": "Accesso non riuscito. Riprova.",
   "login.error_no_org": "Il tuo account non appartiene ancora a un'organizzazione. Chiedi all'amministratore di aggiungerti, poi riprova.",
   "login.error_unreachable": "Il servizio di accesso non è raggiungibile. Controlla la connessione e riprova.",
+  "login.session_ended": "La sessione è terminata e sei stato disconnesso. I tuoi dati su questo computer non sono stati toccati: accedi di nuovo per continuare.",
   "login.link_copied": "Link copiato",
   "login.mission_body": "Automatizziamo i processi delle PMI manifatturiere italiane, perché la tecnologia arrivi anche in reparto.",
   "login.mission_eyebrow": "La nostra missione",

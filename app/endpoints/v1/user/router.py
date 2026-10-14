@@ -109,7 +109,7 @@ async def auth_callback(
         return _done(services, "error", reason)
     user = User(id=ident.user_id, org_id=ident.org_id, email=ident.email, display_name=ident.name)
     UserRepo(services.db).upsert(user)
-    services.tokens.save_refresh(user.id, tokens.refresh_token)
+    await asyncio.to_thread(services.tokens.save_refresh, user.id, tokens.refresh_token)
     services.tokens.set_access(user.id, tokens.access_token, tokens.expires_at)
     services.db.kv_set("last_user_id", user.id)
     try:
@@ -142,8 +142,8 @@ async def logout(request: Request, services: Services = Depends(get_services)) -
         uid = repo.resolve(sid)
         repo.delete(sid)
         if uid:
-            refresh = services.tokens.load_refresh(uid)
-            services.tokens.delete(uid)
+            refresh = await asyncio.to_thread(services.tokens.load_refresh, uid)
+            await asyncio.to_thread(services.tokens.delete, uid)
             if refresh:
                 await services.clerk.revoke(refresh)
     return {"ok": True}

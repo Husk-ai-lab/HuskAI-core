@@ -14,7 +14,7 @@ Husk window (webview or browser)         Husk backend (127.0.0.1:8765)          
                                        ◀── { url, poll_id } (url shown as a fallback)                    sign in (+ organisation)
  polls POST /auth/poll {poll_id}         GET /callback?code&state ◀──────────────────────────────────── redirect
    "pending" …                           → exchange the code, verify the JWT, upsert user/org,
-                                           keep the refresh token in the OS keychain,
+                                           keep the refresh token (private file, or keychain),
                                            POST gateway /v1/me, redirect the browser to /auth/done
    "ok" + Set-Cookie husk_session  ◀──   (the callback sets NO cookie)             "Authenticated. You can close this tab."
 ```
@@ -28,7 +28,7 @@ Husk window (webview or browser)         Husk backend (127.0.0.1:8765)          
 
 * `user_id` = `sub`, `org_id` = the `org_id` claim of the access token (RS256 JWT, verified against `<issuer>/.well-known/jwks.json`, issuer and `client_id` checked). No `org_id` → login stops with "your account does not belong to an organisation yet".
 * The token has no email: it comes from `/oauth/userinfo` (best effort). It has no organisation name or roles either, so the UI shows the email and everybody is a `member`.
-* The access token lives 24 h in memory; the refresh token (never expires) is in the OS keychain (`ai.husk.desktop`). `AccessTokens.get(user_id)` refreshes before expiry; the gateway transport renews once on a 401.
+* The access token lives 24 h in memory; the refresh token is in `session-secrets.json` in the data folder (owner-only 0600, `HUSK_SECRET_STORE=file`, default) or, with `HUSK_SECRET_STORE=keychain`, in the OS keychain (`ai.husk.desktop`). **Why a file:** an unsigned macOS build is refused by its own old keychain item (write *and* read), so the token was lost at every restart and the user was signed out. Clerk's dashboard currently keeps the refresh token valid indefinitely: set a finite lifetime with rotation if the file store is kept (`save_refresh` stores each new token). A clean-up of the old item is manual: `security delete-generic-password -s ai.husk.desktop`. If Clerk cannot be reached the session is kept (the user is only signed out when Clerk refuses the token or none is stored). `AccessTokens.get(user_id)` refreshes before expiry; the gateway transport renews once on a 401.
 * Sign-out deletes the session and the tokens and revokes the refresh token at Clerk.
 
 ## What to configure

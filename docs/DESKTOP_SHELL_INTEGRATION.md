@@ -32,7 +32,7 @@ The shell reads the public GitHub releases of `Husk-ai-lab/HuskAI-core` and pick
 | Tag | `v1.4.0` or `1.4.0`; the leading `v` is stripped and the rest is used as a directory name, so it must be a plain name (no `/`, `..`). Non-semver tags such as `alpha-release` work, and are replaced by any real version |
 | Draft releases | ignored |
 | Pre-releases | offered only on the `beta` channel; `stable` takes the latest non-pre-release |
-| Other files | `SHA256SUMS` and similar are ignored for now (verification is off, see §6) |
+| Other files | `SHA256SUMS` and similar are ignored: the shell checks the SHA-256 that GitHub itself publishes as the asset's `digest` (§3) |
 
 A release with no asset for the user's triple shows as "not available yet" in the shell; it is not an error.
 
@@ -66,7 +66,7 @@ du -sh /tmp/check/husk-backend                       # ~186 MB expected
 ## 3. What the shell does with it
 
 1. Reads the release list, selects the asset (`select_asset`), downloads to `<app-data>/downloads/` and checks the byte count against the GitHub asset size.
-2. Verifies the archive. **Verification is currently off** (`NoopVerifier`).
+2. Verifies the archive: SHA-256 of the file against the asset's `digest` field (`sha256:<hex>`) that GitHub computes at upload (`Sha256Verifier`). A release asset with no usable digest is **refused**, never installed unchecked. This proves the file is what the release holds, not who published it (a signed manifest is still open).
 3. Extracts to `<app-data>/bin/husk/<version>.tmp/`, finds the folder that holds the executable (`locate_root`: the archive root, or its only top folder), makes the executable runnable, then renames that folder to `<app-data>/bin/husk/<version>/`.
 4. Records the version in `<app-data>/config.json` (`current` and `previous_version`). After a successful start it deletes every other version folder under `bin/husk/`, so only the current and the previous version are kept.
 
@@ -81,13 +81,13 @@ logs/shell.log.<date>      # the shell's own log
 config.json                # installed component + version
 ```
 
-"Intact" check (`is_intact`): the executable exists **and** (`_internal/` exists **or** the folder holds more than one entry). The second branch is for older PyInstaller builds that keep libraries beside the executable.
+"Intact" check (`is_intact`): the executable exists **and** (`_internal/` exists **or** a `libpython*` / `python3*.dll` file sits beside it). The second branch is for older PyInstaller builds that keep libraries beside the executable; a stray extra file no longer makes a broken install look intact.
 
 ## 4. How the shell starts and stops the backend
 
 | Aspect | Behaviour |
 | --- | --- |
-| Command | the executable, **no arguments**; working directory = its own folder |
+| Command | the executable with `--data-dir <app-data>/data/husk`; working directory = its own folder |
 | Port | fixed `8765` (Clerk's redirect URI is exactly `http://127.0.0.1:8765/callback`). If the port is busy the shell refuses to start |
 | Readiness | polls `GET http://127.0.0.1:8765/health` for up to 20 s, no proxy; an early exit is reported at once |
 | Environment | see below |
@@ -111,20 +111,24 @@ Environment the shell sets for Husk (added to its own environment):
 - It binds `127.0.0.1` only and never opens a different port.
 - It **exits with code 2 and writes the reason to stderr** if it detects a server or container and was not given `--data-dir PATH`. The shell passes `HUSK_DATA_DIR` (an env var), and on a server that alone is **not** accepted (by design: the flag must be explicit).
 - Exit 255 with `Failed to load Python shared library` means the folder is incomplete (a missing `_internal/`).
-- It never reads or writes inside `bin/`; all state is in the data folder (including `connector-secrets.json`, the default connector credential store, owner-only) and the OS keychain (service `ai.husk.desktop`, the login refresh token). `HUSK_SECRET_STORE=keychain` moves connector credentials back to the keychain; on macOS an unsigned build is then asked for the login password again after every rebuild.
+- It never reads or writes inside `bin/`; all state is in the data folder (including `connector-secrets.json`, the default connector credential store, and `session-secrets.json`, the login refresh token, both owner-only). `HUSK_SECRET_STORE=keychain` moves both back to the OS keychain (service `ai.husk.desktop`); on macOS an unsigned build is then asked for the login password again after every rebuild and loses the item.
 - No AI key and no `.env` are in the bundle.
 
-### Recommended shell changes (not made; the shell is out of this repo's scope)
+### State of the shell (re-read Oct 13, 2026, commit `c885613`)
 
-1. **Pass `--data-dir` as an argument as well as `HUSK_DATA_DIR`.** `StartRequest` has no `args` field. Today it works on a normal desktop, but the backend treats **Linux without `DISPLAY` / `WAYLAND_DISPLAY`** as headless, so a Linux desktop session started without a display variable (a systemd user service, for example) would exit 2. Passing the flag removes the case.
-2. **Make `is_intact` stricter for PyInstaller 6 builds**: require `_internal/` (or the libpython file) rather than "more than one entry". Any extra file, even a hidden marker, currently makes a broken install look intact and "Repair installation" never triggers.
-3. **Recognise the broken-install signature** (`Failed to load Python shared library` in `husk.log`, exit 255) and route to "Repair installation" instead of retrying the start.
-4. **Turn verification on** (SHA-256 plus a signed manifest) before any public release. The shell's own README lists it as a blocker.
+The four changes this document used to recommend are in the shell now:
+
+1. `--data-dir` is passed as an argument as well as `HUSK_DATA_DIR` (`launch_args` in `app.rs`), so a Linux session without a display variable no longer exits 2.
+2. `is_intact` requires `_internal/` or a libpython file (`install/installer.rs`).
+3. The start-up failure `Failed to load Python shared library` is recognised and routed to "Repair installation" (`process/supervisor.rs`).
+4. Downloads are verified against GitHub's SHA-256 `digest` (`install/verify.rs`).
+
+Still open on the shell side: a signed manifest (authenticity), shell self-update, signing secrets, and the CI workflow never having run. See `docs/SHELL_AGENT_BRIEF.md` (local, git-ignored) for the task list.
 
 ## 6. What is not in place yet
 
 - No signing or notarisation. A workflow (`.github/workflows/desktop-build.yml`, see [RELEASING.md](RELEASING.md)) now builds, packages, smoke-tests and drafts the release for the three desktop targets, but it has **not been run on GitHub yet** and every asset it produces is unsigned.
-- No `SHA256SUMS` / signed manifest and no verifier in the shell.
+- No signed manifest. The shell verifies GitHub's own asset digest, which does not prove who published the release; `SHA256SUMS` is informational.
 - Windows and Linux builds have never been produced or started. The macOS arm64 build passes `/health` and the server-guard checks, run from `dist/` (Oct 12, 2026).
 - No update flow has been exercised end to end (`alpha-release` → `0.1.x`): the logic exists in the shell (`is_newer`: a real version replaces a non-version tag) but was not run against a real release.
 

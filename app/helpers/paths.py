@@ -42,6 +42,12 @@ class DataPaths:
         return self.root / "connector-secrets.json"
 
     @property
+    def session_secrets(self) -> Path:
+        """The sign-in refresh token (file store): owner-only, never exported in a backup. NOT removed by Delete all
+        data (the user stays signed in), removed on sign-out."""
+        return self.root / "session-secrets.json"
+
+    @property
     def bm25(self) -> Path:
         return self.root / "bm25"
 

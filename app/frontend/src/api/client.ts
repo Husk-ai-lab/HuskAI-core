@@ -1,6 +1,8 @@
 /** Tiny fetch wrapper: same-origin, cookie session; errors come back translated (Accept-Language). */
 import { currentLang } from "../i18n";
 
+export const SESSION_ENDED_KEY = "husk:session_ended";
+
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
     super(message);
@@ -27,7 +29,16 @@ async function request<T>(method: string, path: string, body?: unknown, isForm =
     } catch {
       /* not json */
     }
-    if (res.status === 401) window.dispatchEvent(new CustomEvent("husk:unauthorized"));
+    if (res.status === 401) {
+      if (code === "errors.session_expired") {
+        try {
+          sessionStorage.setItem(SESSION_ENDED_KEY, "1"); // the login screen tells the person why they are there
+        } catch {
+          /* storage blocked: the login screen just shows no reason */
+        }
+      }
+      window.dispatchEvent(new CustomEvent("husk:unauthorized"));
+    }
     throw new ApiError(res.status, detail || `HTTP ${res.status}`, code);
   }
   if (res.status === 204) return undefined as T;

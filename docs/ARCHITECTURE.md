@@ -50,7 +50,7 @@ Husk is **one FastAPI process** on `127.0.0.1` that serves its own React UI, own
 | Public identifiers (Clerk issuer/client id, gateway URL, default models, Neon Data API URL, languages) | `app/config.py` | Yes |
 | Overrides for dev/staging; provider keys for benchmarks only | `.env` (root) | No |
 | Values passed by the future shell (`HUSK_PORT`, `HUSK_DATA_DIR`, `HUSK_LAUNCH_SECRET`, `HUSK_STUDIO_*`) | Environment | — |
-| Clerk refresh token | OS keychain (`keyring`), never SQLite | No (and never exported) |
+| Clerk refresh token | `session-secrets.json` in the data folder, 0600 (default, `HUSK_SECRET_STORE=file`) or the OS keychain (`keychain`); never SQLite | No (and never exported); kept by Delete all data, removed on sign-out |
 | Connector credentials (Telegram bot token + chat, Gmail App Password) | `connector-secrets.json` in the data folder, 0600, plain text (default, `HUSK_SECRET_STORE=file`) or the OS keychain (`HUSK_SECRET_STORE=keychain`); never SQLite | No (never in a backup export) |
 
 ## Where data lives
@@ -81,7 +81,7 @@ Contents: `husk.db` (SQLite, WAL), `documents/<org>/` (original files), `bm25/<o
 
 * Bind to `127.0.0.1` only. State-changing requests must come from an allowed `Origin` (`LocalGuard`), so a website cannot drive the backend.
 * `/internal/*` requires the shell's per-launch secret (`HUSK_LAUNCH_SECRET`).
-* UI session: random cookie, only its SHA-256 stored. Refresh token in the OS keychain (`keyring`), access token in memory.
+* UI session: random cookie, only its SHA-256 stored. Refresh token in a private file or the OS keychain (`HUSK_SECRET_STORE`), access token in memory.
 * Logs never contain document text or personal data (`helpers/logging.scrub` as a last line of defence).
 
 ## Contracts kept for the next phases

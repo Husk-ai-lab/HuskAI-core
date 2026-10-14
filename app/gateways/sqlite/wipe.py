@@ -3,7 +3,7 @@
 Only the folders and files Husk itself creates are removed (`husk.db` and its WAL files, `documents/`, `bm25/`,
 `runs/`, `outputs/`, `exports/` with the old backups, and `connector-secrets.json` when the file store is used). The data root is NEVER removed as a whole: `HUSK_DATA_DIR` /
 `--data-dir` may point at a folder that holds other things. Log files are emptied, not unlinked (the logger keeps
-the active file open). Keychain items (login, and connector secrets when `HUSK_SECRET_STORE=keychain`) are not touched: they are not in the folder.
+the active file open). `session-secrets.json` (the sign-in refresh token) is NOT removed: the signed-in user stays signed in. Keychain items (when `HUSK_SECRET_STORE=keychain`) are not touched: they are not in the folder.
 """
 
 from __future__ import annotations

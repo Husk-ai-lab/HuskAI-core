@@ -60,6 +60,6 @@ Hosted runners are free for a public repository, so a self-hosted Mac only makes
 
 ## Not in place yet
 
-- Code signing and notarisation (macOS Developer ID, Windows Authenticode). No certificates exist; every asset is unsigned. When they do, signing goes **before** `package` in the `build` job, gated on the secrets being present, and `--signed developer-id --notarised` records it. Signed builds also keep a stable keychain identity, which is the gate for moving the connector secrets back to the keychain (see [CONNECTORS.md](CONNECTORS.md)).
+- Code signing and notarisation (macOS Developer ID, Windows Authenticode). No certificates exist; every asset is unsigned. When they do, signing goes **before** `package` in the `build` job, gated on the secrets being present, and `--signed developer-id --notarised` records it. Signed builds also keep a stable keychain identity, which is the gate for moving the connector secrets and the login refresh token back to the keychain (see [CONNECTORS.md](CONNECTORS.md)).
 - A Linux asset (`x86_64-unknown-linux-gnu`, the shell supports it): add a matrix row on `ubuntu-22.04` with `--smoke-data-dir-flag` (a headless Linux counts as a server and needs `--data-dir`).
-- Shell-side verification of `SHA256SUMS` (the shell uses `NoopVerifier`).
+- Authenticity: the shell checks GitHub's own asset `digest`, which every uploaded asset gets automatically, so `SHA256SUMS` is informational. A signed manifest (minisign over the checksums, public key compiled into the shell) is still open.

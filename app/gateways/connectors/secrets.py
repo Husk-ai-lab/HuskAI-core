@@ -13,14 +13,13 @@ The file store never touches the keychain, so it never causes a keychain prompt.
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.helpers.logging import get_logger
+from app.helpers.private_json import PrivateJsonFile
 
 if TYPE_CHECKING:
     from app.helpers.paths import DataPaths
@@ -34,6 +33,7 @@ class ConnectorSecrets:
     def __init__(self, use_keyring: bool = True, file: Path | None = None):
         self.use_keyring = use_keyring and file is None
         self.file = file
+        self._store = PrivateJsonFile(file, "connector secrets") if file is not None else None
         self._mem: dict[str, str] = {}
         self._lock = threading.Lock()
 
@@ -52,29 +52,12 @@ class ConnectorSecrets:
 
     # --- file store -----------------------------------------------------------------------------------------
     def _read_file(self) -> dict[str, str]:
-        assert self.file is not None
-        try:
-            data = json.loads(self.file.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return {}
-        except (OSError, ValueError) as exc:
-            log.warning("connector secrets file unreadable, treating it as empty: %s", type(exc).__name__)
-            return {}
-        return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(data, dict) else {}
+        assert self._store is not None
+        return self._store.read()
 
     def _write_file(self, data: dict[str, str]) -> None:
-        assert self.file is not None
-        self.file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.file.with_name(self.file.name + ".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # owner-only from the first byte
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(data, fh)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                tmp.unlink()
-            raise
-        os.replace(tmp, self.file)
+        assert self._store is not None
+        self._store.write(data)
 
     # --- public API -----------------------------------------------------------------------------------------
     def get(self, org_id: str, kind: str) -> dict[str, str] | None:

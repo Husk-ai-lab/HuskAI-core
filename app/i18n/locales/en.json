@@ -424,6 +424,7 @@
   "login.error_failed": "Sign-in failed. Try again.",
   "login.error_no_org": "Your account does not belong to an organisation yet. Ask your administrator to add you, then try again.",
   "login.error_unreachable": "The sign-in service can't be reached. Check the connection and try again.",
+  "login.session_ended": "Your session ended, so you were signed out. Your data on this computer is untouched: sign in again to continue.",
   "login.link_copied": "Link copied",
   "login.mission_body": "We automate the processes of Italian manufacturing SMEs, so technology reaches the shop floor too.",
   "login.mission_eyebrow": "Our mission",

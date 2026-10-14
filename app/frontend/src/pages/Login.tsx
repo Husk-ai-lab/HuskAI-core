@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api/client";
+import { SESSION_ENDED_KEY, api } from "../api/client";
 import { LanguageSwitch } from "../components/LanguageSwitch";
 import { Brand } from "../components/Logo";
 import { MaintenanceBanner } from "../components/MaintenanceAlert";
@@ -28,6 +28,15 @@ export function Login() {
   const [rawError, setRawError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const since = useRef(0);
+  const [ended] = useState(() => {
+    try {
+      const v = sessionStorage.getItem(SESSION_ENDED_KEY) === "1";
+      sessionStorage.removeItem(SESSION_ENDED_KEY);
+      return v;
+    } catch {
+      return false;
+    }
+  });
 
   const fail = (reason?: string | null) => {
     setStarted(null);
@@ -114,6 +123,7 @@ export function Login() {
               </button>
             </>
           )}
+          {ended && !error && !rawError && <div className="alert info">{t("login.session_ended")}</div>}
           {(error || rawError) && <div className="alert">{rawError ?? t(error!)}</div>}
           <MaintenanceBanner compact />
           {sys?.login_configured === false && <div className="alert info">{t("login.not_configured")}</div>}

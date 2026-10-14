@@ -18,3 +18,7 @@ presentation_video/
 
 # Private Neon setup (tables + Data API permissions), applied by hand
 sql/neon_husk_core_setup.sql
+
+# Agent briefs for the desktop shell and for the debugger (Husk Studio): local working notes, copied by hand into those repos
+docs/SHELL_AGENT_BRIEF.md
+docs/STUDIO_AGENT_BRIEF.md

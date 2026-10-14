@@ -49,6 +49,12 @@ def _expired(request: httpx.Request) -> httpx.Response:
     return httpx.Response(401, json=body, request=request)
 
 
+def _unavailable(request: httpx.Request) -> httpx.Response:
+    """Clerk could not be reached (offline, 5xx): the session is fine, so this must not end it."""
+    body = {"error": {"message": "sign-in service unreachable", "type": "unavailable", "code": "unavailable"}}
+    return httpx.Response(503, json=body, request=request)
+
+
 class GatewayTransport(httpx.AsyncBaseTransport):
     def __init__(self, access: AccessTokens, user_id: str, gate: RateGate, inner: httpx.AsyncBaseTransport | None = None):
         self.access, self.user_id, self.gate = access, user_id, gate
@@ -60,7 +66,9 @@ class GatewayTransport(httpx.AsyncBaseTransport):
             await self.gate.acquire()
             try:
                 token = await self.access.get(self.user_id, renew=renew)
-            except ClerkError:
+            except ClerkError as exc:
+                if exc.status >= 500:
+                    return _unavailable(request)  # offline or Clerk down: keep the session, local data stays usable
                 return _expired(request)  # a 401 the SDK does not retry; mapped to "sign in again" upstream
             request.headers["Authorization"] = f"Bearer {token}"
             response = await self.inner.handle_async_request(request)

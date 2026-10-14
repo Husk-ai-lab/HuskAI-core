@@ -59,7 +59,7 @@ def build_services(settings: Settings) -> Services:
     db.migrate()
     neon = build_neon(settings)
     clerk = ClerkClient(settings)
-    tokens = TokenStore(use_keyring=settings.env != "test")
+    tokens = TokenStore.from_settings(settings, paths)
     access = AccessTokens(tokens, clerk)
     gateway = GatewayClient(settings, access)
     return Services(
