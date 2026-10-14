@@ -11,6 +11,7 @@ from app.core.events import EventHub
 from app.core.knowledge.index import KnowledgeIndex
 from app.core.knowledge.memory import HarnessMemory
 from app.core.knowledge.service import KnowledgeService
+from app.core.shell_bridge import ShellBridge
 from app.core.system.maintenance import MaintenanceMonitor
 from app.gateways.clerk.login import LoginBroker
 from app.gateways.clerk.oidc import ClerkClient
@@ -44,6 +45,7 @@ class Services:
     maintenance: MaintenanceMonitor
     version: str
     logins: LoginBroker = field(default_factory=LoginBroker)
+    shell: ShellBridge = field(default_factory=ShellBridge)  # requests Husk makes to the desktop shell
     scheduler: object | None = None  # LocalScheduler, set in lifespan
     tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     _suggestions: object | None = None

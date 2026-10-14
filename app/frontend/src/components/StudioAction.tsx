@@ -1,6 +1,6 @@
 import { Activity, ExternalLink } from "lucide-react";
 import { useT } from "../i18n";
-import { studioMcpReady, studioTarget, useStudio } from "../lib/studio";
+import { onStudioInstallClick, studioMcpReady, studioTarget, useStudio } from "../lib/studio";
 
 /**
  * Next to every blocking error: "Show in Husk Studio" when Studio is running, otherwise a small
@@ -12,7 +12,8 @@ export function StudioAction({ traceId, traced }: { traceId?: string | null; tra
   const stop = (e: React.MouseEvent) => e.stopPropagation(); // safe inside clickable rows
   if (target.kind === "install") {
     return (
-      <a className="studio-link install" href={target.url} target="_blank" rel="noreferrer" onClick={stop} title={t("studio.install_title")}>
+      <a className="studio-link install" href={target.url} target="_blank" rel="noreferrer"
+         onClick={(e) => { stop(e); onStudioInstallClick(target.url)(e); }} title={t("studio.install_title")}>
         {t("studio.install")} <ExternalLink size={10} />
       </a>
     );

@@ -1,7 +1,7 @@
 import { Activity, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { useT } from "../i18n";
-import { STUDIO_INSTALL_URL, useStudio } from "../lib/studio";
+import { STUDIO_INSTALL_URL, onStudioInstallClick, useStudio } from "../lib/studio";
 
 const COLLAPSE_KEY = "husk.studioCard.collapsed";
 
@@ -34,7 +34,8 @@ export function StudioCard() {
       {!collapsed && (
         <>
           <p>{connected ? t(st?.mcp ? "studio.card_connected_mcp" : "studio.card_connected") : t("studio.card_install")}</p>
-          <a className="studio-card-link" href={href} target="_blank" rel="noreferrer">
+          <a className="studio-card-link" href={href} target="_blank" rel="noreferrer"
+             onClick={connected ? undefined : onStudioInstallClick(href)}>
             {t(connected ? "studio.open" : "studio.install")} <ExternalLink size={11} />
           </a>
         </>
@@ -70,7 +71,8 @@ export function StudioAdviceCard() {
         <p className="row-desc">{t(connected ? "suggestions.studio_card_body_on" : "suggestions.studio_card_body")}</p>
       </div>
       <div className="sugg-actions">
-        <a className="btn sm primary" href={connected ? st!.ui_url! : st?.install_url || STUDIO_INSTALL_URL} target="_blank" rel="noreferrer">
+        <a className="btn sm primary" href={connected ? st!.ui_url! : st?.install_url || STUDIO_INSTALL_URL} target="_blank" rel="noreferrer"
+           onClick={connected ? undefined : onStudioInstallClick(st?.install_url || STUDIO_INSTALL_URL)}>
           {t(connected ? "studio.open" : "studio.install")} <ExternalLink size={12} />
         </a>
         <button className="btn sm ghost" onClick={dismiss}>{t("suggestions.studio_card_dismiss")}</button>

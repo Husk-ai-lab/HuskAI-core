@@ -50,6 +50,10 @@ class StudioStatus(HuskModel):
     run_url_template: str = "{base}/runs/{trace_id}"
 
 
+class ShellStatus(HuskModel):
+    attached: bool = False  # a desktop shell polled recently: it can open its installation manager
+
+
 class SystemStatus(HuskModel):
     version: str
     llm_model: str | None
@@ -58,4 +62,5 @@ class SystemStatus(HuskModel):
     maintenance: MaintenanceStatus
     release: ReleaseNotice
     studio: StudioStatus
+    shell: ShellStatus = ShellStatus()
     data_dir: str

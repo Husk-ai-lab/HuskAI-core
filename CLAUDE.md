@@ -12,7 +12,7 @@ The plain **Husk** product: FastAPI + React (Vite) on `127.0.0.1` (a native webv
 - `app/data/models` domain models · `app/data/neon` husk-core models (exact plan schema)
 - `app/gateways/{sqlite,clerk,gateway,connectors,decisions,neon,studio}` external I/O (`clerk/`: login + tokens; `gateway/`: husk-gateway client, LLM provider, decision adapter; `connectors/`: Telegram + Gmail; `decisions/`: the decision-model interface and the questions discovery asks)
 - `app/core/connectors` (connector service: status, verify, send) · `app/core/knowledge` (BM25, `tabular/` data tools, `memory/` harness) · `app/core/agents/{harness,explorer,builder}` + `orchestrator.py` · `app/core/automations` · `app/core/suggestions` (after uploads/deletes)
-- `app/core/metering.py` tokens per step/model · `app/frontend` React UI · `test/` pytest · `benchmarks/` (`bench_discovery_tokens.py`: live/offline discovery benchmark) · `installer.py` · `scripts/release.py` (package, report, one-machine build) · `.github/workflows/desktop-build.yml` · `docs/` (`docs/agents/` agent architecture)
+- `app/core/shell_bridge.py` requests Husk makes to the desktop shell (the shell pulls `/internal/shell/requests`) · `app/core/metering.py` tokens per step/model · `app/frontend` React UI · `test/` pytest · `benchmarks/` (`bench_discovery_tokens.py`: live/offline discovery benchmark) · `installer.py` · `scripts/release.py` (package, report, one-machine build) · `.github/workflows/desktop-build.yml` · `docs/` (`docs/agents/` agent architecture)
 
 ## Hard rules
 

@@ -179,3 +179,13 @@ nothing; a GET is not a valid test, Studio's SPA fallback answers 404 for any `v
 for the first 3 minutes after start while Studio is absent (the shell starts Studio after Husk), every 10 s after
 that, and every 30 s while it is running. One missed probe keeps a running Studio; two mark it as gone. The UI asks
 `/api/v1/system/status` every 5 s while Studio is not running.
+
+## Requests from Husk to the shell (open the installation manager)
+
+A Husk page cannot call the shell, so the shell pulls. `POST /api/v1/system/shell/open-manager {tab, component}`
+(from the UI) queues a request only while a shell is attached; the shell long-polls
+`GET /internal/shell/requests?after=<id>&wait=<=25` with `X-Husk-Launch-Secret` and gets
+`{latest, requests:[{id, action:"open_manager", tab, component, created_at}]}`. `after` is the acknowledgement.
+Only the action `open_manager`, a tab (`components|updates|logs`) and a component (`husk|studio`) travel; no URL
+and no command. Without an attached shell the response is `queued:false` and the UI opens the GitHub page. The
+shell-side brief (git-ignored) is `docs/SHELL_REQUESTS_ENDPOINT.md`.

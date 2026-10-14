@@ -18,7 +18,7 @@ export interface Entitlement { allowed: boolean | null; status: string; source: 
 export interface SystemStatus {
   version: string; llm_model?: string | null; login_configured: boolean; neon_configured: boolean;
   maintenance: Maintenance; release: { current: string; latest?: string | null; update_available: boolean; update_required: boolean };
-  studio: StudioStatus; data_dir: string;
+  studio: StudioStatus; shell?: { attached: boolean }; data_dir: string;
 }
 
 export interface UsedBy { automation_id: string; title: string }
